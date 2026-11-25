@@ -22,7 +22,8 @@ private theorem fullPeriodEnergy (n q : ℕ) (hq : 0 < q) (hn : 2 * q ≤ n) (v 
         rw [Nat.add_mul, Nat.one_mul] at hmul
         have hdiv := Nat.div_mul_le_self n q
         apply Finset.mem_filter.mpr
-        exact ⟨Finset.mem_range.mpr (by omega), by simp [Nat.add_mod, Nat.mod_eq_of_lt hrq]⟩
+        have hlt : j * q + r < n + 1 := by omega
+        exact ⟨Finset.mem_range.mpr hlt, by simp [Nat.add_mod, Nat.mod_eq_of_lt hrq]⟩
       · intro i hi j hj heq
         exact Nat.mul_right_cancel hq (Nat.add_right_cancel heq)
     simpa using hinj
