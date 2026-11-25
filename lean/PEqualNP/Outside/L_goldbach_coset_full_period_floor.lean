@@ -43,7 +43,7 @@ private theorem fullPeriodEnergy (n q : ℕ) (hq : 0 < q) (hn : 2 * q ≤ n) (v 
     _ ≤ (v r)^2 * (2 * (q : ℝ) / (n : ℝ)) := mul_le_mul_of_nonneg_left hweight (sq_nonneg _)
     _ = _ := mul_comm _ _
 
-theorem PEqualNP.Outside.L_goldbach_coset_full_period_floor : let F := fun n q r : ℕ => (Finset.range (n+1)).filter (fun k => k%q=r); let w := fun k : ℕ => if k.Prime then Real.log (k:ℝ) else 0; let A := fun n q r : ℕ => ∑ k ∈ F n q r, w k; let μ := fun q r : ℕ => if r.Coprime q then (q:ℝ)/(q.totient:ℝ) else 0; let v := fun n q r : ℕ => A n q r-((F n q r).card:ℝ)*μ q r; let E := fun n q => ∑ r ∈ Finset.range q, (v n q r)^2/((F n q r).card:ℝ); ∀ n q : ℕ, 0<q → 2*q≤n → E n q ≤ (2*(q:ℝ)/(n:ℝ))*∑ r ∈ Finset.range q, (v n q r)^2 := by
+theorem PEqualNP.Outside.L_goldbach_coset_full_period_floor : let F := fun n q r : ℕ => (Finset.range (n+1)).filter (fun k => k % q = r); let w := fun k : ℕ => if k.Prime then Real.log (k:ℝ) else 0; let A := fun n q r : ℕ => ∑ k ∈ F n q r, w k; let μ := fun q r : ℕ => if r.Coprime q then (q:ℝ)/(q.totient:ℝ) else 0; let v := fun n q r : ℕ => A n q r-((F n q r).card:ℝ)*μ q r; let E := fun n q => ∑ r ∈ Finset.range q, (v n q r)^2/((F n q r).card:ℝ); ∀ n q : ℕ, 0<q → 2*q≤n → E n q ≤ (2*(q:ℝ)/(n:ℝ))*∑ r ∈ Finset.range q, (v n q r)^2 := by
   dsimp only
   intro n q hq hn
   apply fullPeriodEnergy n q hq hn
