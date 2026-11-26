@@ -4032,7 +4032,7 @@ namespace FR7022Pin
 open FR7022Flat FR7022Narrow FR7022Short18 FR7022LightEnv FR7022TwoStage
 set_option maxRecDepth 65536 in
 set_option maxHeartbeats 0 in
-def raw : {v : Int // v=FR7022Narrow.base18} := by
+noncomputable def raw : {v : Int // v=FR7022Narrow.base18} := by
   have e : FR7022Narrow.base18=FR7022Narrow.base18 := rfl
   conv at e =>
     lhs
@@ -4041,7 +4041,7 @@ def raw : {v : Int // v=FR7022Narrow.base18} := by
 theorem raw_source : raw.1=FR7022Narrow.base18 := raw.2
 set_option maxRecDepth 65536 in
 set_option maxHeartbeats 0 in
-def biased : {v : Nat // v=FR7022Short18.biased18 368639 raw.1} := by
+noncomputable def biased : {v : Nat // v=FR7022Short18.biased18 368639 raw.1} := by
   have e : FR7022Short18.biased18 368639 raw.1=FR7022Short18.biased18 368639 raw.1 := rfl
   conv at e =>
     lhs
@@ -4050,7 +4050,7 @@ def biased : {v : Nat // v=FR7022Short18.biased18 368639 raw.1} := by
 theorem biased_source : biased.1=FR7022Short18.biased18 368639 raw.1 := biased.2
 set_option maxRecDepth 65536 in
 set_option maxHeartbeats 0 in
-def base : {v : Int // v=FR7022Flat.base64 368639 biased.1} := by
+noncomputable def base : {v : Int // v=FR7022Flat.base64 368639 biased.1} := by
   have e : FR7022Flat.base64 368639 biased.1=FR7022Flat.base64 368639 biased.1 := rfl
   conv at e =>
     lhs
@@ -4059,7 +4059,7 @@ def base : {v : Int // v=FR7022Flat.base64 368639 biased.1} := by
 theorem base_source : base.1=FR7022Flat.base64 368639 biased.1 := base.2
 set_option maxRecDepth 65536 in
 set_option maxHeartbeats 0 in
-def extra : {v : Nat // v=FR7022Separated.extra64} := by
+noncomputable def extra : {v : Nat // v=FR7022Separated.extra64} := by
   have e : FR7022Separated.extra64=FR7022Separated.extra64 := rfl
   conv at e =>
     lhs
