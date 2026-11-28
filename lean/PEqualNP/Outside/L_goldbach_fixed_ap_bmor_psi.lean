@@ -60,7 +60,7 @@ import Mathlib.Analysis.Calculus.LogDeriv
 import Mathlib.Analysis.Meromorphic.FactorizedRational
 import Mathlib.MeasureTheory.Integral.IntervalIntegral.FundThmCalculus
 
--- ==== analytic infrastructure block (BMORAnalyticBlock, 136 lemmas) ====
+-- ==== analytic infrastructure block (BMORAnalyticBlock, 150 lemmas) ====
 
 
 -- ==== BMORRectFactor.lean ====
@@ -3343,6 +3343,610 @@ theorem norm_vert_diff_le {f g : ℂ → ℂ} (df : Differentiable ℂ f)
   have b1 := norm_segH_cpow_le_on (x := X) (G := fun z => logDeriv f z) (y := y₁) hX hx12 hH1
   have b2 := norm_segH_cpow_le_on (x := X) (G := fun z => logDeriv f z) (y := y₂) hX hx12 hH2
   linarith [ht, hz, b1, b2]
+
+end BMORProp21
+
+-- ==== BMORCpowDiv.lean ====
+
+
+/-!
+# The weight `x^s/s`
+
+The explicit formula integrates `x^s · (f'/f)(s) / s`, so the weight carries an extra `1/s`. The
+first step is differentiability of that weight away from the origin.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology
+
+/-- `s ↦ x^s / s` is differentiable on any set avoiding the origin. -/
+theorem differentiableOn_cpow_div {x : ℂ} (hx : x ≠ 0) {R : Set ℂ} (h0 : 0 ∉ R) :
+    DifferentiableOn ℂ (fun s => x ^ s / s) R := by
+  refine DifferentiableOn.div (differentiable_cpow_const hx).differentiableOn
+    differentiableOn_id ?_
+  intro s hs h
+  exact h0 (h ▸ hs)
+
+end BMORProp21
+
+-- ==== BMORBoundaryOn.lean ====
+
+
+/-!
+# Cauchy on the rectangle, differentiability only on the rectangle
+
+`boundary_entire_zero` needs a globally differentiable `g`. The weight `x^s/s` of the explicit
+formula is only differentiable away from the origin, so this is the version that applies.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology
+
+/-- The boundary integral vanishes when `g` is differentiable on the rectangle only. -/
+theorem boundary_zero_of_differentiableOn {g : ℂ → ℂ} {x₁ x₂ y₁ y₂ : ℝ}
+    (hg : DifferentiableOn ℂ g (rectSet x₁ x₂ y₁ y₂)) :
+    (∫ x in x₁..x₂, g ((x:ℂ) + (y₁:ℂ)*I)) - (∫ x in x₁..x₂, g ((x:ℂ) + (y₂:ℂ)*I))
+      + I*(∫ y in y₁..y₂, g ((x₂:ℂ) + (y:ℂ)*I)) - I*(∫ y in y₁..y₂, g ((x₁:ℂ) + (y:ℂ)*I))
+    = 0 := by
+  have hz : (x₁ + (y₁:ℂ)*I).re = x₁ := by simp
+  have hz' : (x₁ + (y₁:ℂ)*I).im = y₁ := by simp
+  have hw : (x₂ + (y₂:ℂ)*I).re = x₂ := by simp
+  have hw' : (x₂ + (y₂:ℂ)*I).im = y₂ := by simp
+  have hd : DifferentiableOn ℂ g
+      (Set.uIcc ((x₁ + (y₁:ℂ)*I).re) ((x₂ + (y₂:ℂ)*I).re)
+        ×ℂ Set.uIcc ((x₁ + (y₁:ℂ)*I).im) ((x₂ + (y₂:ℂ)*I).im)) := by
+    rw [hz, hw, hz', hw']
+    exact hg
+  have h := Complex.integral_boundary_rect_eq_zero_of_differentiableOn (E := ℂ) g
+    (x₁ + (y₁:ℂ)*I) (x₂ + (y₂:ℂ)*I) hd
+  simpa [hz, hz', hw, hw'] using h
+
+end BMORProp21
+
+-- ==== BMORWeightedResidueOn.lean ====
+
+
+/-!
+# The weighted residue, differentiability only on the rectangle
+
+`∫_{∂R} g(s)/(s-a) ds = 2πi·g(a)` for `g` differentiable on the rectangle and `a` strictly inside.
+This is the version needed for the weight `x^s/s`, which is not globally differentiable.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology
+
+/-- The rectangle is a neighbourhood of any strictly interior point. -/
+theorem rectSet_mem_nhds {a : ℂ} {x₁ x₂ y₁ y₂ : ℝ}
+    (hx1 : x₁ < a.re) (hx2 : a.re < x₂) (hy1 : y₁ < a.im) (hy2 : a.im < y₂) :
+    rectSet x₁ x₂ y₁ y₂ ∈ 𝓝 a := by
+  have hmem : a ∈ Set.Ioo x₁ x₂ ×ℂ Set.Ioo y₁ y₂ := ⟨⟨hx1, hx2⟩, ⟨hy1, hy2⟩⟩
+  have hopen : IsOpen (Set.Ioo x₁ x₂ ×ℂ Set.Ioo y₁ y₂) := isOpen_Ioo.reProdIm isOpen_Ioo
+  refine Filter.mem_of_superset (hopen.mem_nhds hmem) ?_
+  intro z hz
+  exact ⟨Set.Icc_subset_uIcc (Set.Ioo_subset_Icc_self hz.1),
+    Set.Icc_subset_uIcc (Set.Ioo_subset_Icc_self hz.2)⟩
+
+/-- The weighted residue on a rectangle, `g` differentiable on the rectangle only. -/
+theorem boundary_weighted_residue_on {g : ℂ → ℂ} {a : ℂ} {x₁ x₂ y₁ y₂ : ℝ}
+    (hg : DifferentiableOn ℂ g (rectSet x₁ x₂ y₁ y₂))
+    (hx1 : x₁ < a.re) (hx2 : a.re < x₂) (hy1 : y₁ < a.im) (hy2 : a.im < y₂) :
+    (∫ x in x₁..x₂, g ((x:ℂ) + (y₁:ℂ)*I) * (((x:ℂ) + (y₁:ℂ)*I) - a)⁻¹)
+      - (∫ x in x₁..x₂, g ((x:ℂ) + (y₂:ℂ)*I) * (((x:ℂ) + (y₂:ℂ)*I) - a)⁻¹)
+      + I*(∫ y in y₁..y₂, g ((x₂:ℂ) + (y:ℂ)*I) * (((x₂:ℂ) + (y:ℂ)*I) - a)⁻¹)
+      - I*(∫ y in y₁..y₂, g ((x₁:ℂ) + (y:ℂ)*I) * (((x₁:ℂ) + (y:ℂ)*I) - a)⁻¹)
+    = 2 * (Real.pi : ℂ) * I * g a := by
+  have hds : DifferentiableOn ℂ (dslope g a) (rectSet x₁ x₂ y₁ y₂) :=
+    (Complex.differentiableOn_dslope (rectSet_mem_nhds hx1 hx2 hy1 hy2)).mpr hg
+  have hdsC : ContinuousOn (dslope g a) (rectSet x₁ x₂ y₁ y₂) := hds.continuousOn
+  have hneH1 : ∀ x : ℝ, ((x:ℂ) + (y₁:ℂ)*I) ≠ a := by
+    intro x h
+    have := congrArg Complex.im h
+    simp at this
+    linarith
+  have hneH2 : ∀ x : ℝ, ((x:ℂ) + (y₂:ℂ)*I) ≠ a := by
+    intro x h
+    have := congrArg Complex.im h
+    simp at this
+    linarith
+  have hneV2 : ∀ y : ℝ, ((x₂:ℂ) + (y:ℂ)*I) ≠ a := by
+    intro y h
+    have := congrArg Complex.re h
+    simp at this
+    linarith
+  have hneV1 : ∀ y : ℝ, ((x₁:ℂ) + (y:ℂ)*I) ≠ a := by
+    intro y h
+    have := congrArg Complex.re h
+    simp at this
+    linarith
+  have mapsH1 : MapsTo (fun x : ℝ => (x:ℂ) + (y₁:ℂ)*I) (Set.uIcc x₁ x₂)
+      (rectSet x₁ x₂ y₁ y₂) := by
+    intro x hx
+    show ((x:ℂ) + (y₁:ℂ)*I).re ∈ Set.uIcc x₁ x₂ ∧ ((x:ℂ) + (y₁:ℂ)*I).im ∈ Set.uIcc y₁ y₂
+    rw [show ((x:ℂ) + (y₁:ℂ)*I).re = x from by simp,
+      show ((x:ℂ) + (y₁:ℂ)*I).im = y₁ from by simp]
+    exact ⟨hx, Set.left_mem_uIcc⟩
+  have mapsH2 : MapsTo (fun x : ℝ => (x:ℂ) + (y₂:ℂ)*I) (Set.uIcc x₁ x₂)
+      (rectSet x₁ x₂ y₁ y₂) := by
+    intro x hx
+    show ((x:ℂ) + (y₂:ℂ)*I).re ∈ Set.uIcc x₁ x₂ ∧ ((x:ℂ) + (y₂:ℂ)*I).im ∈ Set.uIcc y₁ y₂
+    rw [show ((x:ℂ) + (y₂:ℂ)*I).re = x from by simp,
+      show ((x:ℂ) + (y₂:ℂ)*I).im = y₂ from by simp]
+    exact ⟨hx, Set.right_mem_uIcc⟩
+  have mapsV2 : MapsTo (fun y : ℝ => (x₂:ℂ) + (y:ℂ)*I) (Set.uIcc y₁ y₂)
+      (rectSet x₁ x₂ y₁ y₂) := by
+    intro y hy
+    show ((x₂:ℂ) + (y:ℂ)*I).re ∈ Set.uIcc x₁ x₂ ∧ ((x₂:ℂ) + (y:ℂ)*I).im ∈ Set.uIcc y₁ y₂
+    rw [show ((x₂:ℂ) + (y:ℂ)*I).re = x₂ from by simp,
+      show ((x₂:ℂ) + (y:ℂ)*I).im = y from by simp]
+    exact ⟨Set.right_mem_uIcc, hy⟩
+  have mapsV1 : MapsTo (fun y : ℝ => (x₁:ℂ) + (y:ℂ)*I) (Set.uIcc y₁ y₂)
+      (rectSet x₁ x₂ y₁ y₂) := by
+    intro y hy
+    show ((x₁:ℂ) + (y:ℂ)*I).re ∈ Set.uIcc x₁ x₂ ∧ ((x₁:ℂ) + (y:ℂ)*I).im ∈ Set.uIcc y₁ y₂
+    rw [show ((x₁:ℂ) + (y:ℂ)*I).re = x₁ from by simp,
+      show ((x₁:ℂ) + (y:ℂ)*I).im = y from by simp]
+    exact ⟨Set.left_mem_uIcc, hy⟩
+  have iD1 : IntervalIntegrable (fun x : ℝ => dslope g a ((x:ℂ) + (y₁:ℂ)*I)) volume x₁ x₂ :=
+    (hdsC.comp (cont_h y₁).continuousOn mapsH1).intervalIntegrable
+  have iD2 : IntervalIntegrable (fun x : ℝ => dslope g a ((x:ℂ) + (y₂:ℂ)*I)) volume x₁ x₂ :=
+    (hdsC.comp (cont_h y₂).continuousOn mapsH2).intervalIntegrable
+  have iD3 : IntervalIntegrable (fun y : ℝ => dslope g a ((x₂:ℂ) + (y:ℂ)*I)) volume y₁ y₂ :=
+    (hdsC.comp (cont_v x₂).continuousOn mapsV2).intervalIntegrable
+  have iD4 : IntervalIntegrable (fun y : ℝ => dslope g a ((x₁:ℂ) + (y:ℂ)*I)) volume y₁ y₂ :=
+    (hdsC.comp (cont_v x₁).continuousOn mapsV1).intervalIntegrable
+  have iV1 : IntervalIntegrable (fun x : ℝ => g a * (((x:ℂ) + (y₁:ℂ)*I) - a)⁻¹) volume x₁ x₂ := by
+    apply ContinuousOn.intervalIntegrable
+    exact ContinuousOn.mul continuousOn_const
+      (ContinuousOn.inv₀ ((cont_h y₁).continuousOn.sub continuousOn_const)
+        (fun x _ => sub_ne_zero.mpr (hneH1 x)))
+  have iV2 : IntervalIntegrable (fun x : ℝ => g a * (((x:ℂ) + (y₂:ℂ)*I) - a)⁻¹) volume x₁ x₂ := by
+    apply ContinuousOn.intervalIntegrable
+    exact ContinuousOn.mul continuousOn_const
+      (ContinuousOn.inv₀ ((cont_h y₂).continuousOn.sub continuousOn_const)
+        (fun x _ => sub_ne_zero.mpr (hneH2 x)))
+  have iV3 : IntervalIntegrable (fun y : ℝ => g a * (((x₂:ℂ) + (y:ℂ)*I) - a)⁻¹) volume y₁ y₂ := by
+    apply ContinuousOn.intervalIntegrable
+    exact ContinuousOn.mul continuousOn_const
+      (ContinuousOn.inv₀ ((cont_v x₂).continuousOn.sub continuousOn_const)
+        (fun y _ => sub_ne_zero.mpr (hneV2 y)))
+  have iV4 : IntervalIntegrable (fun y : ℝ => g a * (((x₁:ℂ) + (y:ℂ)*I) - a)⁻¹) volume y₁ y₂ := by
+    apply ContinuousOn.intervalIntegrable
+    exact ContinuousOn.mul continuousOn_const
+      (ContinuousOn.inv₀ ((cont_v x₁).continuousOn.sub continuousOn_const)
+        (fun y _ => sub_ne_zero.mpr (hneV1 y)))
+  have hH1 : ∫ x in x₁..x₂, g ((x:ℂ) + (y₁:ℂ)*I) * (((x:ℂ) + (y₁:ℂ)*I) - a)⁻¹
+      = (∫ x in x₁..x₂, dslope g a ((x:ℂ) + (y₁:ℂ)*I))
+        + g a * (∫ x in x₁..x₂, (((x:ℂ) + (y₁:ℂ)*I) - a)⁻¹) := by
+    rw [← intervalIntegral.integral_const_mul]
+    rw [← intervalIntegral.integral_add iD1 iV1]
+    apply intervalIntegral.integral_congr
+    intro x _
+    exact div_sub_split (hneH1 x)
+  have hH2 : ∫ x in x₁..x₂, g ((x:ℂ) + (y₂:ℂ)*I) * (((x:ℂ) + (y₂:ℂ)*I) - a)⁻¹
+      = (∫ x in x₁..x₂, dslope g a ((x:ℂ) + (y₂:ℂ)*I))
+        + g a * (∫ x in x₁..x₂, (((x:ℂ) + (y₂:ℂ)*I) - a)⁻¹) := by
+    rw [← intervalIntegral.integral_const_mul]
+    rw [← intervalIntegral.integral_add iD2 iV2]
+    apply intervalIntegral.integral_congr
+    intro x _
+    exact div_sub_split (hneH2 x)
+  have hV2 : ∫ y in y₁..y₂, g ((x₂:ℂ) + (y:ℂ)*I) * (((x₂:ℂ) + (y:ℂ)*I) - a)⁻¹
+      = (∫ y in y₁..y₂, dslope g a ((x₂:ℂ) + (y:ℂ)*I))
+        + g a * (∫ y in y₁..y₂, (((x₂:ℂ) + (y:ℂ)*I) - a)⁻¹) := by
+    rw [← intervalIntegral.integral_const_mul]
+    rw [← intervalIntegral.integral_add iD3 iV3]
+    apply intervalIntegral.integral_congr
+    intro y _
+    exact div_sub_split (hneV2 y)
+  have hV1 : ∫ y in y₁..y₂, g ((x₁:ℂ) + (y:ℂ)*I) * (((x₁:ℂ) + (y:ℂ)*I) - a)⁻¹
+      = (∫ y in y₁..y₂, dslope g a ((x₁:ℂ) + (y:ℂ)*I))
+        + g a * (∫ y in y₁..y₂, (((x₁:ℂ) + (y:ℂ)*I) - a)⁻¹) := by
+    rw [← intervalIntegral.integral_const_mul]
+    rw [← intervalIntegral.integral_add iD4 iV4]
+    apply intervalIntegral.integral_congr
+    intro y _
+    exact div_sub_split (hneV1 y)
+  rw [hH1, hH2, hV2, hV1]
+  have hz := boundary_zero_of_differentiableOn hds (x₁ := x₁) (x₂ := x₂) (y₁ := y₁) (y₂ := y₂)
+  have hr := rectangle_residue_at (a := a) (x₁ := x₁) (x₂ := x₂) (y₁ := y₁) (y₂ := y₂)
+    hx1 hx2 hy1 hy2
+  linear_combination hz + g a * hr
+
+end BMORProp21
+
+-- ==== BMORCpowDivResidue.lean ====
+
+
+/-!
+# The residue of `x^s/s` at a zero
+
+The explicit formula carries the weight `x^s/s`, so the residue at a zero `ρ` is `x^ρ/ρ` rather than
+`x^ρ`. This is the version that feeds the zero sum `Σ_ρ x^ρ/ρ`.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology
+
+/-- The residue of `x^s/s` at `ρ`. -/
+theorem boundary_cpow_div_residue {x : ℂ} (hx : x ≠ 0) {ρ : ℂ} {x₁ x₂ y₁ y₂ : ℝ}
+    (h0 : 0 ∉ rectSet x₁ x₂ y₁ y₂)
+    (h1 : x₁ < ρ.re) (h2 : ρ.re < x₂) (h3 : y₁ < ρ.im) (h4 : ρ.im < y₂) :
+    (∫ t in x₁..x₂, (x ^ ((t:ℂ) + (y₁:ℂ)*I) / ((t:ℂ) + (y₁:ℂ)*I))
+        * (((t:ℂ) + (y₁:ℂ)*I) - ρ)⁻¹)
+      - (∫ t in x₁..x₂, (x ^ ((t:ℂ) + (y₂:ℂ)*I) / ((t:ℂ) + (y₂:ℂ)*I))
+        * (((t:ℂ) + (y₂:ℂ)*I) - ρ)⁻¹)
+      + I*(∫ t in y₁..y₂, (x ^ ((x₂:ℂ) + (t:ℂ)*I) / ((x₂:ℂ) + (t:ℂ)*I))
+        * (((x₂:ℂ) + (t:ℂ)*I) - ρ)⁻¹)
+      - I*(∫ t in y₁..y₂, (x ^ ((x₁:ℂ) + (t:ℂ)*I) / ((x₁:ℂ) + (t:ℂ)*I))
+        * (((x₁:ℂ) + (t:ℂ)*I) - ρ)⁻¹)
+    = 2 * (Real.pi : ℂ) * I * (x ^ ρ / ρ) :=
+  boundary_weighted_residue_on (g := fun s => x ^ s / s)
+    (differentiableOn_cpow_div hx h0) h1 h2 h3 h4
+
+end BMORProp21
+
+-- ==== BMORExchangeDiv.lean ====
+
+
+/-!
+# Sum interchange for the weight `x^s/s`
+
+The analogues of `integrable_along` / `exchange_gen` for the weight `x^s/s`, which needs `s ≠ 0`
+on the segment in addition to avoiding the poles `ρ`.
+
+The non-vanishing at the origin is only needed **on the segment**: outside it the parametrisation can
+pass through `0` (this is exactly the situation for the contour legs).
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+set_option maxHeartbeats 800000 in
+/-- Integrability along a segment for the weight `x^s/s`. -/
+theorem integrable_along_div {x : ℂ} (hx : x ≠ 0) {φ : ℝ → ℂ} (hφ : Continuous φ)
+    {ρ : ℂ} (hne : ∀ t : ℝ, φ t ≠ ρ) {a b : ℝ} (h0 : ∀ t ∈ Set.uIcc a b, φ t ≠ 0) :
+    IntervalIntegrable (fun t : ℝ => x ^ (φ t) / (φ t) * (φ t - ρ)⁻¹) volume a b := by
+  apply ContinuousOn.intervalIntegrable
+  apply ContinuousOn.mul
+  · exact (continuous_cpow_comp hx hφ).continuousOn.div hφ.continuousOn h0
+  · exact ContinuousOn.inv₀ (hφ.sub continuous_const).continuousOn
+      (fun t _ => sub_ne_zero.mpr (hne t))
+
+set_option maxHeartbeats 800000 in
+/-- Sum interchange along a parametrised segment, weight `x^s/s`. -/
+theorem exchange_gen_div {x : ℂ} (hx : x ≠ 0) {σ : Finset ℂ} {m : ℂ → ℕ} {φ : ℝ → ℂ}
+    (hφ : Continuous φ) (hne : ∀ ρ ∈ σ, ∀ t : ℝ, φ t ≠ ρ) {a b : ℝ}
+    (h0 : ∀ t ∈ Set.uIcc a b, φ t ≠ 0) :
+    ∫ t in a..b, ∑ ρ ∈ σ, (m ρ : ℂ) * (x ^ (φ t) / (φ t) * (φ t - ρ)⁻¹)
+      = ∑ ρ ∈ σ, (m ρ : ℂ) * ∫ t in a..b, (x ^ (φ t) / (φ t) * (φ t - ρ)⁻¹) :=
+  integral_finset_sum_gen (x₁ := a) (x₂ := b) σ (fun ρ => (m ρ : ℂ))
+    (fun ρ t => x ^ (φ t) / (φ t) * (φ t - ρ)⁻¹)
+    (fun ρ hρ => integrable_along_div hx hφ (fun t => hne ρ hρ t) h0)
+
+end BMORProp21
+
+-- ==== BMORPoleSumDiv.lean ====
+
+
+/-!
+# The pole sum with the weight `x^s/s`
+
+`bnd (Σ_ρ m_ρ·(x^s/s)·(s-ρ)⁻¹) = 2πi·Σ_ρ m_ρ·(x^ρ/ρ)` — the zero sum with the weight of the
+explicit formula.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+/-- `bnd` form of the residue of `x^s/s` at `ρ`. -/
+theorem bnd_cpow_div_residue {x : ℂ} (hx : x ≠ 0) {ρ : ℂ} {x₁ x₂ y₁ y₂ : ℝ}
+    (h0 : 0 ∉ rectSet x₁ x₂ y₁ y₂)
+    (h1 : x₁ < ρ.re) (h2 : ρ.re < x₂) (h3 : y₁ < ρ.im) (h4 : ρ.im < y₂) :
+    bnd (fun s => (x ^ s / s) * (s - ρ)⁻¹) x₁ x₂ y₁ y₂
+      = 2 * (Real.pi : ℂ) * I * (x ^ ρ / ρ) := by
+  unfold bnd segH segV
+  exact boundary_cpow_div_residue hx h0 h1 h2 h3 h4
+
+set_option maxHeartbeats 800000 in
+/-- The weighted pole sum: `x^ρ/ρ` instead of `x^ρ`. -/theorem bnd_sum_poles_div {x : ℂ} (hx : x ≠ 0) {σ : Finset ℂ} {m : ℂ → ℕ}
+    {x₁ x₂ y₁ y₂ : ℝ} (h0 : 0 ∉ rectSet x₁ x₂ y₁ y₂)
+    (hin : ∀ ρ ∈ σ, x₁ < ρ.re ∧ ρ.re < x₂ ∧ y₁ < ρ.im ∧ ρ.im < y₂) :
+    bnd (fun s => ∑ ρ ∈ σ, (m ρ : ℂ) * ((x ^ s / s) * (s - ρ)⁻¹)) x₁ x₂ y₁ y₂
+      = (2 * (Real.pi : ℂ) * I) * ∑ ρ ∈ σ, (m ρ : ℂ) * (x ^ ρ / ρ) := by
+  have hne1 : ∀ ρ ∈ σ, ∀ t : ℝ, ((t:ℂ) + (y₁:ℂ)*I) ≠ ρ := by
+    intro ρ hρ t h
+    have him : y₁ = ρ.im := by simpa using congrArg Complex.im h
+    linarith [(hin ρ hρ).2.2.1]
+  have hne2 : ∀ ρ ∈ σ, ∀ t : ℝ, ((t:ℂ) + (y₂:ℂ)*I) ≠ ρ := by
+    intro ρ hρ t h
+    have him : y₂ = ρ.im := by simpa using congrArg Complex.im h
+    linarith [(hin ρ hρ).2.2.2]
+  have hne3 : ∀ ρ ∈ σ, ∀ t : ℝ, ((x₂:ℂ) + (t:ℂ)*I) ≠ ρ := by
+    intro ρ hρ t h
+    have hre : x₂ = ρ.re := by simpa using congrArg Complex.re h
+    linarith [(hin ρ hρ).2.1]
+  have hne4 : ∀ ρ ∈ σ, ∀ t : ℝ, ((x₁:ℂ) + (t:ℂ)*I) ≠ ρ := by
+    intro ρ hρ t h
+    have hre : x₁ = ρ.re := by simpa using congrArg Complex.re h
+    linarith [(hin ρ hρ).1]
+  have h0H1 : ∀ t ∈ Set.uIcc x₁ x₂, ((t:ℂ) + (y₁:ℂ)*I) ≠ 0 := by
+    intro t ht h
+    refine h0 (h ▸ ?_)
+    exact ⟨by simpa using ht, by simpa using (Set.left_mem_uIcc : y₁ ∈ Set.uIcc y₁ y₂)⟩
+  have h0H2 : ∀ t ∈ Set.uIcc x₁ x₂, ((t:ℂ) + (y₂:ℂ)*I) ≠ 0 := by
+    intro t ht h
+    refine h0 (h ▸ ?_)
+    exact ⟨by simpa using ht, by simpa using (Set.right_mem_uIcc : y₂ ∈ Set.uIcc y₁ y₂)⟩
+  have h0V2 : ∀ t ∈ Set.uIcc y₁ y₂, ((x₂:ℂ) + (t:ℂ)*I) ≠ 0 := by
+    intro t ht h
+    refine h0 (h ▸ ?_)
+    exact ⟨by simpa using (Set.right_mem_uIcc : x₂ ∈ Set.uIcc x₁ x₂), by simpa using ht⟩
+  have h0V1 : ∀ t ∈ Set.uIcc y₁ y₂, ((x₁:ℂ) + (t:ℂ)*I) ≠ 0 := by
+    intro t ht h
+    refine h0 (h ▸ ?_)
+    exact ⟨by simpa using (Set.left_mem_uIcc : x₁ ∈ Set.uIcc x₁ x₂), by simpa using ht⟩
+  have e1 : segH (fun s => ∑ ρ ∈ σ, (m ρ : ℂ) * ((x ^ s / s) * (s - ρ)⁻¹)) y₁ x₁ x₂
+      = ∑ ρ ∈ σ, (m ρ : ℂ) * segH (fun s => (x ^ s / s) * (s - ρ)⁻¹) y₁ x₁ x₂ := by
+    unfold segH
+    rw [exchange_gen_div hx (cont_h y₁) hne1 h0H1]
+  have e2 : segH (fun s => ∑ ρ ∈ σ, (m ρ : ℂ) * ((x ^ s / s) * (s - ρ)⁻¹)) y₂ x₁ x₂
+      = ∑ ρ ∈ σ, (m ρ : ℂ) * segH (fun s => (x ^ s / s) * (s - ρ)⁻¹) y₂ x₁ x₂ := by
+    unfold segH
+    rw [exchange_gen_div hx (cont_h y₂) hne2 h0H2]
+  have e3 : segV (fun s => ∑ ρ ∈ σ, (m ρ : ℂ) * ((x ^ s / s) * (s - ρ)⁻¹)) x₂ y₁ y₂
+      = ∑ ρ ∈ σ, (m ρ : ℂ) * segV (fun s => (x ^ s / s) * (s - ρ)⁻¹) x₂ y₁ y₂ := by
+    unfold segV
+    rw [exchange_gen_div hx (cont_v x₂) hne3 h0V2]
+  have e4 : segV (fun s => ∑ ρ ∈ σ, (m ρ : ℂ) * ((x ^ s / s) * (s - ρ)⁻¹)) x₁ y₁ y₂
+      = ∑ ρ ∈ σ, (m ρ : ℂ) * segV (fun s => (x ^ s / s) * (s - ρ)⁻¹) x₁ y₁ y₂ := by
+    unfold segV
+    rw [exchange_gen_div hx (cont_v x₁) hne4 h0V1]
+  have hbnd : bnd (fun s => ∑ ρ ∈ σ, (m ρ : ℂ) * ((x ^ s / s) * (s - ρ)⁻¹)) x₁ x₂ y₁ y₂
+      = ∑ ρ ∈ σ, (m ρ : ℂ) * bnd (fun s => (x ^ s / s) * (s - ρ)⁻¹) x₁ x₂ y₁ y₂ := by
+    unfold bnd
+    rw [e1, e2, e3, e4]
+    rw [← Finset.sum_sub_distrib, Finset.mul_sum, ← Finset.sum_add_distrib,
+      Finset.mul_sum, ← Finset.sum_sub_distrib]
+    apply Finset.sum_congr rfl
+    intro ρ hρ
+    ring
+  rw [hbnd, Finset.mul_sum]
+  apply Finset.sum_congr rfl
+  intro ρ hρ
+  rw [bnd_cpow_div_residue hx h0 (hin ρ hρ).1 (hin ρ hρ).2.1
+    (hin ρ hρ).2.2.1 (hin ρ hρ).2.2.2]
+  ring
+
+end BMORProp21
+
+-- ==== BMORCrossZeroDiv.lean ====
+
+
+/-!
+# The logarithmic derivative with the weight `x^s/s`
+
+`bnd ((x^s/s)·P'/P) = 2πi·Σ_ρ m_ρ·(x^ρ/ρ)` where `P = zeroFactorC f R` and `f = P·g` off the zeros.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+set_option maxHeartbeats 800000 in
+/-- The zero-factor logarithmic derivative with the weight `x^s/s`. -/
+theorem bnd_cpow_div_logDeriv_zeroFactorC_eq {f : ℂ → ℂ} {x : ℂ} (hx : x ≠ 0)
+    {R : Set ℂ} {σ : Finset ℂ} {m : ℂ → ℕ}
+    {x₁ x₂ y₁ y₂ : ℝ} (h0 : 0 ∉ rectSet x₁ x₂ y₁ y₂)
+    (hP : ∀ z, BMORRectFactor.zeroFactorC f R z = ∏ a ∈ σ, (z-a)^(m a))
+    (hin : ∀ ρ ∈ σ, x₁ < ρ.re ∧ ρ.re < x₂ ∧ y₁ < ρ.im ∧ ρ.im < y₂) :
+    bnd (fun s => (x ^ s / s) * logDeriv (BMORRectFactor.zeroFactorC f R) s)
+        x₁ x₂ y₁ y₂
+      = (2 * (Real.pi : ℂ) * I) * ∑ ρ ∈ σ, (m ρ : ℂ) * (x ^ ρ / ρ) := by
+  have key : ∀ z : ℂ, (∀ a ∈ σ, z ≠ a) →
+      (x ^ z / z) * logDeriv (BMORRectFactor.zeroFactorC f R) z
+        = ∑ a ∈ σ, (m a : ℂ) * ((x ^ z / z) * (z - a)⁻¹) := by
+    intro z hz
+    rw [logDeriv_zeroFactorC_eq R hP hz, Finset.mul_sum]
+    apply Finset.sum_congr rfl
+    intro a _
+    ring
+  have hcongr : bnd (fun s => (x ^ s / s) * logDeriv (BMORRectFactor.zeroFactorC f R) s)
+        x₁ x₂ y₁ y₂
+      = bnd (fun s => ∑ a ∈ σ, (m a : ℂ) * ((x ^ s / s) * (s - a)⁻¹)) x₁ x₂ y₁ y₂ := by
+    refine bnd_congr4 (G := fun s => ∑ a ∈ σ, (m a : ℂ) * ((x ^ s / s) * (s - a)⁻¹))
+      ?_ ?_ ?_ ?_
+    · intro t _
+      apply key
+      intro a ha h
+      have him : y₁ = a.im := by simpa using congrArg Complex.im h
+      linarith [(hin a ha).2.2.1]
+    · intro t _
+      apply key
+      intro a ha h
+      have him : y₂ = a.im := by simpa using congrArg Complex.im h
+      linarith [(hin a ha).2.2.2]
+    · intro t _
+      apply key
+      intro a ha h
+      have hre : x₂ = a.re := by simpa using congrArg Complex.re h
+      linarith [(hin a ha).2.1]
+    · intro t _
+      apply key
+      intro a ha h
+      have hre : x₁ = a.re := by simpa using congrArg Complex.re h
+      linarith [(hin a ha).1]
+  rw [hcongr, bnd_sum_poles_div hx h0 hin]
+
+end BMORProp21
+
+-- ==== BMORCoFactorDiv.lean ====
+
+
+/-!
+# The cofactor term vanishes for the weight `x^s/s`
+
+`bnd ((x^s/s)·g'/g) = 0` when `g` has no zeros on the rectangle and `0` is outside it: the
+integrand is holomorphic on the rectangle.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+/-- The cofactor contribution vanishes for the weight `x^s/s`. -/
+theorem bnd_cpow_div_logDeriv_cofactor {g : ℂ → ℂ} (hg : Differentiable ℂ g) {x : ℂ}
+    (hx : x ≠ 0) {x₁ x₂ y₁ y₂ : ℝ} (h0 : 0 ∉ rectSet x₁ x₂ y₁ y₂)
+    (hgne : ∀ z ∈ rectSet x₁ x₂ y₁ y₂, g z ≠ 0) :
+    bnd (fun s => (x ^ s / s) * logDeriv g s) x₁ x₂ y₁ y₂ = 0 := by
+  have h := boundary_zero_of_differentiableOn
+    (g := fun s => (x ^ s / s) * logDeriv g s)
+    (x₁ := x₁) (x₂ := x₂) (y₁ := y₁) (y₂ := y₂) ?_
+  · rw [bnd_eq_vert_diff (fun s => (x ^ s / s) * logDeriv g s) x₁ x₂ y₁ y₂]
+    linear_combination h
+  · exact DifferentiableOn.mul (differentiableOn_cpow_div hx h0)
+      ((hg.deriv.differentiableOn).div hg.differentiableOn hgne)
+
+end BMORProp21
+
+-- ==== BMORCrossZeroDivMain.lean ====
+
+
+/-!
+# The explicit formula with the weight `x^s/s`
+
+`bnd ((x^s/s)·f'/f) = 2πi·Σ_ρ m_ρ·(x^ρ/ρ)`.
+
+The decomposition `f'/f = P'/P + g'/g` is performed on `bndSet` (the four legs): `logDeriv P` blows
+up at the interior zeros of `f`, so it is not continuous on the whole rectangle.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+/-- The boundary set sits inside the rectangle. -/
+theorem bndSet_subset_rectSet {x₁ x₂ y₁ y₂ : ℝ} :
+    bndSet x₁ x₂ y₁ y₂ ⊆ rectSet x₁ x₂ y₁ y₂ := by
+  intro z hz
+  simp only [bndSet, Set.mem_setOf_eq] at hz
+  rcases hz with ⟨h1, h2⟩ | ⟨h1, h2⟩ | ⟨h1, h2⟩ | ⟨h1, h2⟩
+  · exact ⟨h2, by rw [Set.mem_preimage, h1]; exact Set.left_mem_uIcc⟩
+  · exact ⟨h2, by rw [Set.mem_preimage, h1]; exact Set.right_mem_uIcc⟩
+  · exact ⟨by rw [Set.mem_preimage, h1]; exact Set.right_mem_uIcc, h2⟩
+  · exact ⟨by rw [Set.mem_preimage, h1]; exact Set.left_mem_uIcc, h2⟩
+
+set_option maxHeartbeats 800000 in
+/-- The explicit formula with the weight `x^s/s`. -/
+theorem cross_zero_div {f g : ℂ → ℂ} (df : Differentiable ℂ f) (hg : Differentiable ℂ g)
+    {x : ℂ} (hx : x ≠ 0) {R : Set ℂ} (hR : IsCompact R) {x₁ x₂ y₁ y₂ : ℝ}
+    (hrect : R = rectSet x₁ x₂ y₁ y₂) (h0 : 0 ∉ rectSet x₁ x₂ y₁ y₂)
+    {σ : Finset ℂ} {m : ℂ → ℕ}
+    (hP : ∀ z, BMORRectFactor.zeroFactorC f R z = ∏ a ∈ σ, (z-a)^(m a))
+    (hfg : ∀ z, f z = BMORRectFactor.zeroFactorC f R z * g z)
+    (hgne : ∀ z ∈ rectSet x₁ x₂ y₁ y₂, g z ≠ 0)
+    (hin : ∀ ρ ∈ σ, x₁ < ρ.re ∧ ρ.re < x₂ ∧ y₁ < ρ.im ∧ ρ.im < y₂) :
+    bnd (fun s => (x ^ s / s) * logDeriv f s) x₁ x₂ y₁ y₂
+      = (2 * (Real.pi : ℂ) * I) * ∑ ρ ∈ σ, (m ρ : ℂ) * (x ^ ρ / ρ) := by
+  have hPne : ∀ z ∈ bndSet x₁ x₂ y₁ y₂, BMORRectFactor.zeroFactorC f R z ≠ 0 := by
+    intro z hz
+    have hzne := bndSet_ne_roots hP hrect hin z hz
+    rw [hP z]
+    exact Finset.prod_ne_zero_iff.mpr (fun a ha => pow_ne_zero _ (sub_ne_zero.mpr (hzne a ha)))
+  have hlog : ∀ z ∈ bndSet x₁ x₂ y₁ y₂,
+      (x ^ z / z) * logDeriv f z
+        = (x ^ z / z) * logDeriv (BMORRectFactor.zeroFactorC f R) z
+          + (x ^ z / z) * logDeriv g z := by
+    intro z hz
+    have hbnd : z ∈ rectSet x₁ x₂ y₁ y₂ := bndSet_subset_rectSet hz
+    rw [BMORRectFactor.logDeriv_factor df R hR hfg hg (hPne z hz) (hgne z hbnd)]
+    ring
+  have hPc : ContinuousOn
+      (fun s => (x ^ s / s) * logDeriv (BMORRectFactor.zeroFactorC f R) s)
+      (bndSet x₁ x₂ y₁ y₂) := by
+    intro z hz
+    have hzr : z ∈ rectSet x₁ x₂ y₁ y₂ := bndSet_subset_rectSet hz
+    have hzne : z ≠ 0 := fun h => h0 (h ▸ hzr)
+    have hPdiff : Differentiable ℂ (BMORRectFactor.zeroFactorC f R) :=
+      BMORRectFactor.differentiable_zeroFactorC df R hR
+    have h1 : DifferentiableAt ℂ (fun s : ℂ => x ^ s / s) z :=
+      (differentiable_cpow_const hx).differentiableAt.div differentiableAt_id hzne
+    have h2 : DifferentiableAt ℂ (logDeriv (BMORRectFactor.zeroFactorC f R)) z :=
+      (hPdiff.deriv.differentiableAt).div hPdiff.differentiableAt (hPne z hz)
+    exact ((h1.mul h2).continuousAt).continuousWithinAt
+  have hGc : ContinuousOn (fun s => (x ^ s / s) * logDeriv g s) (bndSet x₁ x₂ y₁ y₂) := by
+    intro z hz
+    have hzr : z ∈ rectSet x₁ x₂ y₁ y₂ := bndSet_subset_rectSet hz
+    have hzne : z ≠ 0 := fun h => h0 (h ▸ hzr)
+    have h1 : DifferentiableAt ℂ (fun s : ℂ => x ^ s / s) z :=
+      (differentiable_cpow_const hx).differentiableAt.div differentiableAt_id hzne
+    have h2 : DifferentiableAt ℂ (logDeriv g) z :=
+      (hg.deriv.differentiableAt).div hg.differentiableAt (hgne z hzr)
+    exact ((h1.mul h2).continuousAt).continuousWithinAt
+  rw [bnd_congr_bnd (G := fun s => (x ^ s / s) * logDeriv (BMORRectFactor.zeroFactorC f R) s
+      + (x ^ s / s) * logDeriv g s) hlog]
+  rw [bnd_add_bnd hPc hGc]
+  rw [bnd_cpow_div_logDeriv_zeroFactorC_eq hx h0 hP hin,
+    bnd_cpow_div_logDeriv_cofactor hg hx h0 hgne, add_zero]
+
+end BMORProp21
+
+-- ==== BMORZeroSumDivBound.lean ====
+
+
+/-!
+# Bounding the weighted zero sum
+
+Taking norms in `cross_zero_div` turns a bound on the contour integral into a bound on
+`‖Σ_ρ m_ρ·(x^ρ/ρ)‖`.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+/-- The norm of `2πi·S`. -/
+theorem norm_two_pi_I_mul (S : ℂ) : ‖(2 * (Real.pi : ℂ) * I) * S‖ = 2 * Real.pi * ‖S‖ := by
+  rw [norm_mul, norm_mul, norm_mul, Complex.norm_I, mul_one]
+  have h2 : ‖(2 : ℂ)‖ = 2 := by norm_num
+  have hp : ‖(Real.pi : ℂ)‖ = Real.pi := by
+    simp [Real.norm_eq_abs, abs_of_pos Real.pi_pos]
+  rw [h2, hp]
+
+/-- A bound on the contour integral gives a bound on the weighted zero sum. -/
+theorem norm_zero_sum_div_le {f g : ℂ → ℂ} (df : Differentiable ℂ f)
+    (hg : Differentiable ℂ g) {x : ℂ} (hx : x ≠ 0) {R : Set ℂ} (hR : IsCompact R)
+    {x₁ x₂ y₁ y₂ : ℝ} (hrect : R = rectSet x₁ x₂ y₁ y₂)
+    (h0 : 0 ∉ rectSet x₁ x₂ y₁ y₂) {σ : Finset ℂ} {m : ℂ → ℕ}
+    (hP : ∀ z, BMORRectFactor.zeroFactorC f R z = ∏ a ∈ σ, (z-a)^(m a))
+    (hfg : ∀ z, f z = BMORRectFactor.zeroFactorC f R z * g z)
+    (hgne : ∀ z ∈ rectSet x₁ x₂ y₁ y₂, g z ≠ 0)
+    (hin : ∀ ρ ∈ σ, x₁ < ρ.re ∧ ρ.re < x₂ ∧ y₁ < ρ.im ∧ ρ.im < y₂)
+    {B : ℝ} (hB : ‖bnd (fun s => (x ^ s / s) * logDeriv f s) x₁ x₂ y₁ y₂‖ ≤ B) :
+    ‖∑ ρ ∈ σ, (m ρ : ℂ) * (x ^ ρ / ρ)‖ ≤ B / (2 * Real.pi) := by
+  have heq := cross_zero_div df hg hx hR hrect h0 hP hfg hgne hin
+  have hb : ‖(2 * (Real.pi : ℂ) * I) * ∑ ρ ∈ σ, (m ρ : ℂ) * (x ^ ρ / ρ)‖ ≤ B := by
+    rw [← heq]
+    exact hB
+  rw [norm_two_pi_I_mul] at hb
+  rw [le_div_iff₀ (by positivity : (0:ℝ) < 2 * Real.pi)]
+  linarith
 
 end BMORProp21
 -- ==== end analytic infrastructure block ====
