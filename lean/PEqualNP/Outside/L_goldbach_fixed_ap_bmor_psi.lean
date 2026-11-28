@@ -60,7 +60,7 @@ import Mathlib.Analysis.Calculus.LogDeriv
 import Mathlib.Analysis.Meromorphic.FactorizedRational
 import Mathlib.MeasureTheory.Integral.IntervalIntegral.FundThmCalculus
 
--- ==== analytic infrastructure block (BMORAnalyticBlock, 128 lemmas) ====
+-- ==== analytic infrastructure block (BMORAnalyticBlock, 136 lemmas) ====
 
 
 -- ==== BMORRectFactor.lean ====
@@ -3105,6 +3105,244 @@ theorem norm_zero_sum_le {f g : ℂ → ℂ} (df : Differentiable ℂ f)
       (K := fun s => (x:ℂ) ^ s) (fun s => rfl) hR rfl D.hP D.hfg hgne hin hx12 hy12
   rw [← heq]
   exact norm_bnd_cpow_logDeriv_le_final df hg hR D hx hx12 hy12 rfl hle
+
+end BMORProp21
+
+-- ==== BMORIAlgebra.lean ====
+
+
+/-!
+# The `i`-algebra used by the contour shift
+
+`ring` does not know `i² = -1`, so these small identities are stated once and reused.
+-/
+
+namespace BMORProp21
+
+open Complex
+
+/-- `-i·(i·z) = z`. -/
+theorem neg_I_mul_I_mul (z : ℂ) : -I * (I * z) = z := by
+  have hI : I ^ 2 = (-1 : ℂ) := Complex.I_sq
+  calc -I * (I * z) = -(I ^ 2) * z := by ring
+    _ = -(-1 : ℂ) * z := by rw [hI]
+    _ = z := by ring
+
+/-- `i·(-i·z) = z`. -/
+theorem I_mul_neg_I_mul (z : ℂ) : I * (-I * z) = z := by
+  have hI : I ^ 2 = (-1 : ℂ) := Complex.I_sq
+  calc I * (-I * z) = -(I ^ 2) * z := by ring
+    _ = -(-1 : ℂ) * z := by rw [hI]
+    _ = z := by ring
+
+end BMORProp21
+
+-- ==== BMORVertDiff.lean ====
+
+
+/-!
+# Interface between the rectangle boundary and the two vertical lines
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology
+
+/-- The boundary functional, written with the difference of the two vertical legs. -/
+theorem bnd_eq_vert_diff (F : ℂ → ℂ) (x₁ x₂ y₁ y₂ : ℝ) :
+    bnd F x₁ x₂ y₁ y₂
+      = (∫ x in x₁..x₂, F ((x:ℂ) + (y₁:ℂ)*I))
+        - (∫ x in x₁..x₂, F ((x:ℂ) + (y₂:ℂ)*I))
+        + I * ((∫ y in y₁..y₂, F ((x₂:ℂ) + (y:ℂ)*I))
+            - (∫ y in y₁..y₂, F ((x₁:ℂ) + (y:ℂ)*I))) := by
+  unfold bnd segH segV
+  ring
+
+/-- Solving for the difference of the two vertical legs. -/
+theorem vert_diff_eq (F : ℂ → ℂ) (x₁ x₂ y₁ y₂ : ℝ) :
+    (∫ y in y₁..y₂, F ((x₂:ℂ) + (y:ℂ)*I)) - (∫ y in y₁..y₂, F ((x₁:ℂ) + (y:ℂ)*I))
+      = -I * (bnd F x₁ x₂ y₁ y₂
+          - ((∫ x in x₁..x₂, F ((x:ℂ) + (y₁:ℂ)*I))
+            - (∫ x in x₁..x₂, F ((x:ℂ) + (y₂:ℂ)*I)))) := by
+  have h := bnd_eq_vert_diff F x₁ x₂ y₁ y₂
+  have hI : I ^ 2 = (-1 : ℂ) := Complex.I_sq
+  linear_combination I * h
+    + ((∫ y in y₁..y₂, F ((x₂:ℂ) + (y:ℂ)*I)) - (∫ y in y₁..y₂, F ((x₁:ℂ) + (y:ℂ)*I))) * hI
+
+end BMORProp21
+
+-- ==== BMORShift.lean ====
+
+
+/-!
+# The contour shift
+
+`V₂ − V₁ = 2π·Σ_ρ m_ρ·x^ρ + i·(H₁ − H₂)`: the difference of the two vertical legs equals the
+weighted zero sum (from the cross-zero identity) plus the horizontal contribution.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+/-- The arithmetic of the contour shift. -/
+theorem shift_arith (S U : ℂ) :
+    -I * ((2 * (Real.pi : ℂ) * I) * S - U) = 2 * (Real.pi : ℂ) * S + I * U := by
+  have hI : I ^ 2 = (-1 : ℂ) := Complex.I_sq
+  calc -I * ((2 * (Real.pi : ℂ) * I) * S - U)
+      = -I * ((2 * (Real.pi : ℂ) * I) * S) + I * U := by ring
+    _ = -(2 * (Real.pi : ℂ) * (I ^ 2)) * S + I * U := by ring
+    _ = -(2 * (Real.pi : ℂ) * (-1)) * S + I * U := by rw [hI]
+    _ = 2 * (Real.pi : ℂ) * S + I * U := by ring
+
+
+set_option maxHeartbeats 800000 in
+/-- The contour shift: the difference of the two vertical legs is the zero sum plus the
+horizontal contribution. -/
+theorem shift_eq {f g : ℂ → ℂ} (df : Differentiable ℂ f) (hg : Differentiable ℂ g)
+    {x₁ x₂ y₁ y₂ : ℝ} (hR : IsCompact (rectSet x₁ x₂ y₁ y₂)) {σ : Finset ℂ} {m : ℂ → ℕ}
+    (D : ContourData f g (rectSet x₁ x₂ y₁ y₂) σ m)
+    {X : ℝ} (hX : 1 < X) (hx12 : x₁ ≤ x₂) (hy12 : y₁ ≤ y₂)
+    (hin : ∀ ρ ∈ σ, x₁ < ρ.re ∧ ρ.re < x₂ ∧ y₁ < ρ.im ∧ ρ.im < y₂) :
+    (∫ y in y₁..y₂, (X:ℂ) ^ ((x₂:ℂ) + (y:ℂ)*I) * logDeriv f ((x₂:ℂ) + (y:ℂ)*I))
+      - (∫ y in y₁..y₂, (X:ℂ) ^ ((x₁:ℂ) + (y:ℂ)*I) * logDeriv f ((x₁:ℂ) + (y:ℂ)*I))
+      = 2 * (Real.pi : ℂ) * ∑ ρ ∈ σ, (m ρ : ℂ) * (X:ℂ) ^ ρ
+        + I * ((∫ t in x₁..x₂, (X:ℂ) ^ ((t:ℂ) + (y₁:ℂ)*I) * logDeriv f ((t:ℂ) + (y₁:ℂ)*I))
+          - (∫ t in x₁..x₂, (X:ℂ) ^ ((t:ℂ) + (y₂:ℂ)*I) * logDeriv f ((t:ℂ) + (y₂:ℂ)*I))) := by
+  have hX0 : (X:ℂ) ≠ 0 := by
+    exact_mod_cast (ne_of_gt (lt_trans zero_lt_one hX))
+  have hgne : ∀ z ∈ rectSet x₁ x₂ y₁ y₂, g z ≠ 0 := by
+    intro z hz h0
+    have h1 : f z = 0 := by simp only [D.hfg z, h0, mul_zero]
+    exact D.hne z hz h1
+  have hc := cross_zero (σ := σ) (m := m) df hg (x := (X:ℂ)) hX0
+    (K := fun s => (X:ℂ) ^ s) (fun s => rfl) hR rfl D.hP D.hfg hgne hin hx12 hy12
+  have hv := vert_diff_eq (fun s => (X:ℂ) ^ s * logDeriv f s) x₁ x₂ y₁ y₂
+  rw [hc] at hv
+  rw [hv]
+  exact shift_arith _ _
+end BMORProp21
+
+-- ==== BMORShiftBound.lean ====
+
+
+/-!
+# Bounding the difference of the two vertical legs
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+/-- Dropping the `i` does not change the norm. -/
+theorem norm_two_pi_mul_eq (S : ℂ) :
+    ‖(2 * (Real.pi : ℂ)) * S‖ = ‖(2 * (Real.pi : ℂ) * I) * S‖ := by
+  have hp : ‖(Real.pi : ℂ)‖ = Real.pi := by
+    simp [Real.norm_eq_abs, abs_of_pos Real.pi_pos]
+  have h2 : ‖(2 : ℂ)‖ = 2 := by norm_num
+  have hI : ‖(I : ℂ)‖ = 1 := Complex.norm_I
+  simp only [norm_mul, h2, hp, hI, mul_one, one_mul]
+
+end BMORProp21
+
+-- ==== BMORVertBound.lean ====
+
+
+/-!
+# Bounding the difference of the two vertical legs
+
+The triangle-inequality step: `‖V₂ - V₁‖ ≤ ‖2πi·Σ‖ + ‖H₁‖ + ‖H₂‖`. The individual estimates for the
+zero sum and for the two horizontal legs are supplied by `norm_zero_sum_le` and
+`norm_segH_cpow_le_on`.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+set_option maxHeartbeats 800000 in
+/-- Triangle-inequality bound for the difference of the two vertical legs. -/
+theorem norm_vert_diff_le_triangle {f g : ℂ → ℂ} (df : Differentiable ℂ f)
+    (hg : Differentiable ℂ g) {x₁ x₂ y₁ y₂ : ℝ}
+    (hR : IsCompact (rectSet x₁ x₂ y₁ y₂)) {σ : Finset ℂ} {m : ℂ → ℕ}
+    (D : ContourData f g (rectSet x₁ x₂ y₁ y₂) σ m)
+    {X : ℝ} (hX : 1 < X) (hx12 : x₁ ≤ x₂) (hy12 : y₁ ≤ y₂)
+    (hin : ∀ ρ ∈ σ, x₁ < ρ.re ∧ ρ.re < x₂ ∧ y₁ < ρ.im ∧ ρ.im < y₂) :
+    ‖(∫ y in y₁..y₂, (X:ℂ) ^ ((x₂:ℂ) + (y:ℂ)*I) * logDeriv f ((x₂:ℂ) + (y:ℂ)*I))
+      - (∫ y in y₁..y₂, (X:ℂ) ^ ((x₁:ℂ) + (y:ℂ)*I) * logDeriv f ((x₁:ℂ) + (y:ℂ)*I))‖
+      ≤ ‖(2 * (Real.pi : ℂ) * I) * ∑ ρ ∈ σ, (m ρ : ℂ) * (X:ℂ) ^ ρ‖
+        + ‖(∫ t in x₁..x₂, (X:ℂ) ^ ((t:ℂ) + (y₁:ℂ)*I) * logDeriv f ((t:ℂ) + (y₁:ℂ)*I))‖
+        + ‖(∫ t in x₁..x₂, (X:ℂ) ^ ((t:ℂ) + (y₂:ℂ)*I) * logDeriv f ((t:ℂ) + (y₂:ℂ)*I))‖ := by
+  rw [shift_eq df hg hR D hX hx12 hy12 hin]
+  have h1 : ‖(2 * (Real.pi : ℂ)) * ∑ ρ ∈ σ, (m ρ : ℂ) * (X:ℂ) ^ ρ
+      + I * ((∫ t in x₁..x₂, (X:ℂ) ^ ((t:ℂ) + (y₁:ℂ)*I) * logDeriv f ((t:ℂ) + (y₁:ℂ)*I))
+        - (∫ t in x₁..x₂, (X:ℂ) ^ ((t:ℂ) + (y₂:ℂ)*I) * logDeriv f ((t:ℂ) + (y₂:ℂ)*I)))‖
+      ≤ ‖(2 * (Real.pi : ℂ)) * ∑ ρ ∈ σ, (m ρ : ℂ) * (X:ℂ) ^ ρ‖
+        + ‖I * ((∫ t in x₁..x₂, (X:ℂ) ^ ((t:ℂ) + (y₁:ℂ)*I) * logDeriv f ((t:ℂ) + (y₁:ℂ)*I))
+          - (∫ t in x₁..x₂, (X:ℂ) ^ ((t:ℂ) + (y₂:ℂ)*I) * logDeriv f ((t:ℂ) + (y₂:ℂ)*I)))‖ :=
+    norm_add_le _ _
+  have h2 : ‖(2 * (Real.pi : ℂ)) * ∑ ρ ∈ σ, (m ρ : ℂ) * (X:ℂ) ^ ρ‖
+      = ‖(2 * (Real.pi : ℂ) * I) * ∑ ρ ∈ σ, (m ρ : ℂ) * (X:ℂ) ^ ρ‖ :=
+    norm_two_pi_mul_eq _
+  have h3 : ‖I * ((∫ t in x₁..x₂, (X:ℂ) ^ ((t:ℂ) + (y₁:ℂ)*I) * logDeriv f ((t:ℂ) + (y₁:ℂ)*I))
+      - (∫ t in x₁..x₂, (X:ℂ) ^ ((t:ℂ) + (y₂:ℂ)*I) * logDeriv f ((t:ℂ) + (y₂:ℂ)*I)))‖
+      = ‖(∫ t in x₁..x₂, (X:ℂ) ^ ((t:ℂ) + (y₁:ℂ)*I) * logDeriv f ((t:ℂ) + (y₁:ℂ)*I))
+        - (∫ t in x₁..x₂, (X:ℂ) ^ ((t:ℂ) + (y₂:ℂ)*I) * logDeriv f ((t:ℂ) + (y₂:ℂ)*I))‖ := by
+    rw [norm_mul, Complex.norm_I, one_mul]
+  have h4 : ‖(∫ t in x₁..x₂, (X:ℂ) ^ ((t:ℂ) + (y₁:ℂ)*I) * logDeriv f ((t:ℂ) + (y₁:ℂ)*I))
+      - (∫ t in x₁..x₂, (X:ℂ) ^ ((t:ℂ) + (y₂:ℂ)*I) * logDeriv f ((t:ℂ) + (y₂:ℂ)*I))‖
+      ≤ ‖(∫ t in x₁..x₂, (X:ℂ) ^ ((t:ℂ) + (y₁:ℂ)*I) * logDeriv f ((t:ℂ) + (y₁:ℂ)*I))‖
+        + ‖(∫ t in x₁..x₂, (X:ℂ) ^ ((t:ℂ) + (y₂:ℂ)*I) * logDeriv f ((t:ℂ) + (y₂:ℂ)*I))‖ :=
+    norm_sub_le _ _
+  linarith
+
+end BMORProp21
+
+-- ==== BMORVertBound2.lean ====
+
+
+/-!
+# The final bound for the difference of the two vertical legs
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+set_option maxHeartbeats 800000 in
+/-- Explicit bound for the difference of the two vertical legs. -/
+theorem norm_vert_diff_le {f g : ℂ → ℂ} (df : Differentiable ℂ f)
+    (hg : Differentiable ℂ g) {x₁ x₂ y₁ y₂ : ℝ}
+    (hR : IsCompact (rectSet x₁ x₂ y₁ y₂)) {σ : Finset ℂ} {m : ℂ → ℕ}
+    (D : ContourData f g (rectSet x₁ x₂ y₁ y₂) σ m)
+    {X : ℝ} (hX : 1 < X) (hx12 : x₁ ≤ x₂) (hy12 : y₁ ≤ y₂)
+    (hin : ∀ ρ ∈ σ, x₁ < ρ.re ∧ ρ.re < x₂ ∧ y₁ < ρ.im ∧ ρ.im < y₂)
+    (hle : Real.exp (x₁ * Real.log X) ≤ Real.exp (x₂ * Real.log X)) :
+    ‖(∫ y in y₁..y₂, (X:ℂ) ^ ((x₂:ℂ) + (y:ℂ)*I) * logDeriv f ((x₂:ℂ) + (y:ℂ)*I))
+      - (∫ y in y₁..y₂, (X:ℂ) ^ ((x₁:ℂ) + (y:ℂ)*I) * logDeriv f ((x₁:ℂ) + (y:ℂ)*I))‖
+      ≤ Real.exp (x₂ * Real.log X) *
+          ((2 * (x₂ - x₁) + 2 * (y₂ - y₁)) *
+            ((∑ ρ ∈ σ, (m ρ : ℝ) * (D.delta ρ)⁻¹) + D.Cg))
+        + (Real.exp (x₂ * Real.log X) * (∫ t in x₁..x₂, ‖logDeriv f ((t:ℂ) + (y₁:ℂ)*I)‖)
+          + Real.exp (x₂ * Real.log X) * (∫ t in x₁..x₂, ‖logDeriv f ((t:ℂ) + (y₂:ℂ)*I)‖)) := by
+  have hH1 : ContinuousOn (fun t : ℝ => logDeriv f ((t:ℂ) + (y₁:ℂ)*I)) (Set.uIcc x₁ x₂) := by
+    intro t ht
+    exact (continuousAt_logDeriv df (D.hne _ ⟨by simpa using ht, by simpa using Set.left_mem_uIcc⟩))
+      |>.comp_continuousWithinAt (cont_h y₁).continuousAt.continuousWithinAt
+  have hH2 : ContinuousOn (fun t : ℝ => logDeriv f ((t:ℂ) + (y₂:ℂ)*I)) (Set.uIcc x₁ x₂) := by
+    intro t ht
+    exact (continuousAt_logDeriv df (D.hne _ ⟨by simpa using ht, by simpa using Set.right_mem_uIcc⟩))
+      |>.comp_continuousWithinAt (cont_h y₂).continuousAt.continuousWithinAt
+  have ht := norm_vert_diff_le_triangle df hg hR D hX hx12 hy12 hin
+  have hz := norm_zero_sum_le df hg hR D hX hx12 hy12 hin hle
+  have b1 := norm_segH_cpow_le_on (x := X) (G := fun z => logDeriv f z) (y := y₁) hX hx12 hH1
+  have b2 := norm_segH_cpow_le_on (x := X) (G := fun z => logDeriv f z) (y := y₂) hX hx12 hH2
+  linarith [ht, hz, b1, b2]
 
 end BMORProp21
 -- ==== end analytic infrastructure block ====
