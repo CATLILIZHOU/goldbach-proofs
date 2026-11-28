@@ -60,8 +60,141 @@ import Mathlib.Analysis.Calculus.LogDeriv
 import Mathlib.Analysis.Meromorphic.FactorizedRational
 import Mathlib.MeasureTheory.Integral.IntervalIntegral.FundThmCalculus
 
--- ==== analytic infrastructure block (164 declarations, ContourData inhabited) ====
+-- ==== analytic infrastructure block (168 declarations, incl. BMOR Lemma 4.18) ====
 
+
+-- ==== BMORLemma418.lean ====
+
+
+/-!
+# BMOR Lemma 4.18, first evaluation
+
+With `z = 2√(m log x / R)` and `y = √(mR/log x)·log(dH₂)`, one has `(z/2)·y = m·log(dH₂)`.
+-/
+
+namespace BMORProp21
+
+open Real
+
+/-- The first evaluation behind Lemma 4.18. -/
+theorem bmor_eval_z_mul_y {m : ℕ} {R x d H2 : ℝ} (hR : 0 < R) (hx : 1 < x)
+    (hdH2 : 1 < d * H2) :
+    (2 * Real.sqrt ((m : ℝ) * Real.log x / R)) / 2 *
+        (Real.sqrt ((m : ℝ) * R / Real.log x) * Real.log (d * H2))
+      = (m : ℝ) * Real.log (d * H2) := by
+  have hlogx : 0 < Real.log x := Real.log_pos hx
+  have hm0 : (0:ℝ) ≤ (m : ℝ) := Nat.cast_nonneg m
+  have harg : (0:ℝ) ≤ (m : ℝ) * Real.log x / R :=
+    div_nonneg (mul_nonneg hm0 (le_of_lt hlogx)) (le_of_lt hR)
+  have hstep : (2 * Real.sqrt ((m : ℝ) * Real.log x / R)) / 2
+      = Real.sqrt ((m : ℝ) * Real.log x / R) := by ring
+  have hsq : ((m : ℝ) * Real.log x / R) * ((m : ℝ) * R / Real.log x) = (m : ℝ) ^ 2 := by
+    field_simp
+  rw [hstep, ← mul_assoc, ← Real.sqrt_mul harg, hsq, Real.sqrt_sq hm0]
+
+
+/-- The second evaluation behind Lemma 4.18. -/
+theorem bmor_eval_z_div_y {m : ℕ} (hm : 0 < m) {R x d H2 : ℝ} (hR : 0 < R) (hx : 1 < x)
+    (hdH2 : 1 < d * H2) :
+    (2 * Real.sqrt ((m : ℝ) * Real.log x / R)) / 2 /
+        (Real.sqrt ((m : ℝ) * R / Real.log x) * Real.log (d * H2))
+      = Real.log x / (R * Real.log (d * H2)) := by
+  have hlogx : 0 < Real.log x := Real.log_pos hx
+  have hlogd : 0 < Real.log (d * H2) := Real.log_pos hdH2
+  have hm' : (0:ℝ) < (m : ℝ) := by exact_mod_cast hm
+  have hm0 : (0:ℝ) ≤ (m : ℝ) := le_of_lt hm'
+  have harg : (0:ℝ) ≤ (m : ℝ) * Real.log x / R :=
+    div_nonneg (mul_nonneg hm0 (le_of_lt hlogx)) (le_of_lt hR)
+  have hB0 : (0:ℝ) ≤ (m : ℝ) * R / Real.log x :=
+    div_nonneg (mul_nonneg hm0 (le_of_lt hR)) (le_of_lt hlogx)
+  have hstep : (2 * Real.sqrt ((m : ℝ) * Real.log x / R)) / 2
+      = Real.sqrt ((m : ℝ) * Real.log x / R) := by ring
+  have hAB : ((m : ℝ) * Real.log x / R) / ((m : ℝ) * R / Real.log x) = (Real.log x / R) ^ 2 := by
+    field_simp
+  have hdiv : Real.sqrt ((m : ℝ) * Real.log x / R) /
+      Real.sqrt ((m : ℝ) * R / Real.log x) = Real.log x / R := by
+    rw [← Real.sqrt_div harg, hAB,
+      Real.sqrt_sq (div_nonneg (le_of_lt hlogx) (le_of_lt hR))]
+  rw [hstep]
+  calc Real.sqrt ((m : ℝ) * Real.log x / R) /
+        (Real.sqrt ((m : ℝ) * R / Real.log x) * Real.log (d * H2))
+      = (Real.sqrt ((m : ℝ) * Real.log x / R) /
+          Real.sqrt ((m : ℝ) * R / Real.log x)) * (1 / Real.log (d * H2)) := by
+        field_simp
+    _ = (Real.log x / R) * (1 / Real.log (d * H2)) := by rw [hdiv]
+    _ = Real.log x / (R * Real.log (d * H2)) := by
+        field_simp
+
+/-- `exp(-(m log t)) = (1/t)^m`. -/
+theorem exp_neg_nat_mul_log {m : ℕ} {t : ℝ} (ht : 0 < t) :
+    Real.exp (-((m:ℝ) * Real.log t)) = (1 / t) ^ m := by
+  have hexp : Real.exp ((m:ℝ) * Real.log t) = t ^ m := by
+    rw [Real.exp_nat_mul, Real.exp_log ht]
+  rw [Real.exp_neg, hexp, one_div, inv_pow]
+
+/-- Lemma 4.18, identity (4.4). -/
+theorem bmor_4_18_a {m : ℕ} (hm : 0 < m) {R x d H2 : ℝ} (hR : 0 < R) (hx : 1 < x)
+    (hd : 0 < d) (hH2 : 0 < H2) (hdH2 : 1 < d * H2) :
+    Real.exp (-((2 * Real.sqrt ((m:ℝ) * Real.log x / R)) / 2 *
+        (Real.sqrt ((m:ℝ) * R / Real.log x) * Real.log (d * H2) +
+          1 / (Real.sqrt ((m:ℝ) * R / Real.log x) * Real.log (d * H2)))))
+      = (1 / (d * H2)) ^ m *
+        Real.exp (-(Real.log x / (R * Real.log (d * H2)))) := by
+  have hlogd : 0 < Real.log (d * H2) := Real.log_pos hdH2
+  have h1 := bmor_eval_z_mul_y (m := m) (R := R) (x := x) (d := d) (H2 := H2) hR hx hdH2
+  have h2 := bmor_eval_z_div_y (m := m) hm (R := R) (x := x) (d := d) (H2 := H2) hR hx hdH2
+  set c : ℝ := Real.sqrt ((m:ℝ) * R / Real.log x) * Real.log (d * H2) with hc
+  set s : ℝ := (2 * Real.sqrt ((m:ℝ) * Real.log x / R)) / 2 with hs
+  have hcne : c ≠ 0 := by
+    have h1 : Real.sqrt ((m:ℝ) * R / Real.log x) ≠ 0 := by
+      have : 0 < Real.sqrt ((m:ℝ) * R / Real.log x) := by
+        apply Real.sqrt_pos.mpr
+        apply div_pos
+        · exact mul_pos (by exact_mod_cast hm) hR
+        · exact Real.log_pos hx
+      exact ne_of_gt this
+    exact mul_ne_zero h1 (ne_of_gt hlogd)
+  have e1 : s * c = (m:ℝ) * Real.log (d * H2) := h1
+  have e2 : s / c = Real.log x / (R * Real.log (d * H2)) := h2
+  have e3 : s * (c + 1 / c) = (m:ℝ) * Real.log (d * H2) + Real.log x / (R * Real.log (d * H2)) := by
+    rw [mul_add, mul_one_div, e1, e2]
+  rw [e3]
+  have hstep : Real.exp (-((m:ℝ) * Real.log (d * H2) +
+      Real.log x / (R * Real.log (d * H2))))
+      = Real.exp (-((m:ℝ) * Real.log (d * H2))) *
+        Real.exp (-(Real.log x / (R * Real.log (d * H2)))) := by
+    rw [show -((m:ℝ) * Real.log (d * H2) + Real.log x / (R * Real.log (d * H2)))
+        = -((m:ℝ) * Real.log (d * H2)) + -(Real.log x / (R * Real.log (d * H2))) from by ring,
+      Real.exp_add]
+  rw [hstep, exp_neg_nat_mul_log (by linarith : (0:ℝ) < d * H2)]
+
+/-- Lemma 4.18, identity (4.5). -/
+theorem bmor_4_18_b {m : ℕ} (hm : 0 < m) {R x d H2 : ℝ} (hR : 0 < R) (hx : 1 < x)
+    (hd : 0 < d) (hH2 : 0 < H2) (hdH2 : 1 < d * H2) :
+    Real.sqrt ((2 * Real.sqrt ((m:ℝ) * Real.log x / R)) / 2) *
+        (Real.sqrt (Real.sqrt ((m:ℝ) * R / Real.log x) * Real.log (d * H2)) -
+          1 / Real.sqrt (Real.sqrt ((m:ℝ) * R / Real.log x) * Real.log (d * H2)))
+      = Real.sqrt ((m:ℝ) * Real.log (d * H2)) -
+        Real.sqrt (Real.log x / (R * Real.log (d * H2))) := by
+  have hz : (2 * Real.sqrt ((m:ℝ) * Real.log x / R)) / 2
+      = Real.sqrt ((m:ℝ) * Real.log x / R) := by ring
+  have hsz : (0:ℝ) ≤ Real.sqrt ((m:ℝ) * Real.log x / R) := Real.sqrt_nonneg _
+  have hlogd : 0 < Real.log (d * H2) := Real.log_pos hdH2
+  have h1 := bmor_eval_z_mul_y (m := m) (R := R) (x := x) (d := d) (H2 := H2) hR hx hdH2
+  rw [hz] at h1
+  have h2 := bmor_eval_z_div_y (m := m) hm (R := R) (x := x) (d := d) (H2 := H2) hR hx hdH2
+  rw [hz] at h2
+  rw [hz, mul_sub, mul_one_div]
+  have e1 : Real.sqrt (Real.sqrt ((m:ℝ) * Real.log x / R)) *
+      Real.sqrt (Real.sqrt ((m:ℝ) * R / Real.log x) * Real.log (d * H2))
+      = Real.sqrt ((m:ℝ) * Real.log (d * H2)) := by
+    rw [← Real.sqrt_mul hsz, h1]
+  have e2 : Real.sqrt (Real.sqrt ((m:ℝ) * Real.log x / R)) /
+      Real.sqrt (Real.sqrt ((m:ℝ) * R / Real.log x) * Real.log (d * H2))
+      = Real.sqrt (Real.log x / (R * Real.log (d * H2))) := by
+    rw [← Real.sqrt_div hsz, h2]
+  rw [e1, e2]
+end BMORProp21
 
 -- ==== BMORRectFactor.lean ====
 
