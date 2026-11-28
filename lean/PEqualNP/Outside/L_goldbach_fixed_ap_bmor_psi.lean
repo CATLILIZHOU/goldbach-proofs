@@ -60,7 +60,7 @@ import Mathlib.Analysis.Calculus.LogDeriv
 import Mathlib.Analysis.Meromorphic.FactorizedRational
 import Mathlib.MeasureTheory.Integral.IntervalIntegral.FundThmCalculus
 
--- ==== analytic infrastructure block (BMORAnalyticBlock, non-vacuous ContourData) ====
+-- ==== analytic infrastructure block (164 declarations, ContourData inhabited) ====
 
 
 -- ==== BMORRectFactor.lean ====
@@ -4413,6 +4413,28 @@ theorem deltaP_le_norm {ρ : ℂ} {x₁ x₂ y₁ y₂ : ℝ}
     rw [hre, abs_of_neg (by linarith)] at hb
     linarith
 
+
+/-- `ContourData` with the explicit distance `deltaP`: the structure is inhabited. -/
+noncomputable def contourData_deltaP {f g : ℂ → ℂ} {R : Set ℂ} {x₁ x₂ y₁ y₂ : ℝ} {σ : Finset ℂ}
+    {m : ℂ → ℕ} (hR : IsCompact R)
+    (hrect : R = rectSet x₁ x₂ y₁ y₂)
+    (hP : ∀ z, BMORRectFactor.zeroFactorC f R z = ∏ a ∈ σ, (z-a)^(m a))
+    (hfg : ∀ z, f z = BMORRectFactor.zeroFactorC f R z * g z)
+    (hne : ∀ z ∈ R, f z ≠ 0)
+    (hin : ∀ ρ ∈ σ, x₁ < ρ.re ∧ ρ.re < x₂ ∧ y₁ < ρ.im ∧ ρ.im < y₂)
+    {Cg : ℝ} (hCg : ∀ z ∈ R, ‖logDeriv g z‖ ≤ Cg) :
+    ContourData f g R x₁ x₂ y₁ y₂ σ m :=
+  { hrect := hrect
+    hP := hP
+    hfg := hfg
+    hne := hne
+    delta := fun ρ => deltaP ρ x₁ x₂ y₁ y₂
+    hδ := fun ρ hρ =>
+      deltaP_pos (hin ρ hρ).1 (hin ρ hρ).2.1 (hin ρ hρ).2.2.1 (hin ρ hρ).2.2.2
+    hdist := fun ρ hρ z hz =>
+      deltaP_le_norm (hin ρ hρ).1 (hin ρ hρ).2.1 (hin ρ hρ).2.2.1 (hin ρ hρ).2.2.2 hz
+    Cg := Cg
+    hCg := hCg }
 end BMORProp21
 -- ==== end analytic infrastructure block ====
 
