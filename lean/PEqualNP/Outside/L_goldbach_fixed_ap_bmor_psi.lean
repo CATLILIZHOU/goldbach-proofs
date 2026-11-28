@@ -53,13 +53,14 @@ import Mathlib.Data.Nat.ModEq
 import Mathlib.NumberTheory.Bernoulli
 import Mathlib.Analysis.Complex.RemovableSingularity
 import Mathlib.Analysis.SpecialFunctions.Pow.Complex
+import Mathlib.Analysis.SpecialFunctions.Pow.Real
 import Mathlib.Analysis.SpecialFunctions.Complex.Arg
 import Mathlib.Analysis.SpecialFunctions.Trigonometric.ArctanDeriv
 import Mathlib.Analysis.Calculus.LogDeriv
 import Mathlib.Analysis.Meromorphic.FactorizedRational
 import Mathlib.MeasureTheory.Integral.IntervalIntegral.FundThmCalculus
 
--- ==== analytic infrastructure block (BMORAnalyticBlock) ====
+-- ==== analytic infrastructure block (BMORAnalyticBlock, 127 lemmas) ====
 
 
 -- ==== BMORRectFactor.lean ====
@@ -2107,6 +2108,959 @@ theorem cross_zero {f g : ℂ → ℂ} (df : Differentiable ℂ f) (hg : Differe
   rw [bnd_add_bnd hPc hGc]
   rw [bnd_cpow_logDeriv_zeroFactorC_eq_K hx hK hP hin,
     bnd_cpow_logDeriv_cofactor_K hg hx hK hle_x hle_y hgne, add_zero]
+
+end BMORProp21
+
+-- ==== BMORVerticalEst.lean ====
+
+
+/-!
+# The modulus of `x^s` on a vertical line
+
+`‖x^(c+it)‖ = x^c` for `x > 0`. This is the basic estimate behind every far-contour bound in the
+explicit formula.
+-/
+
+namespace BMORProp21
+
+open Complex
+
+/-- On the vertical line `Re s = c`, the weight `x^s` has modulus `x^c`. -/
+theorem norm_cpow_vertical {x : ℝ} (hx : 0 < x) (c t : ℝ) :
+    ‖(x : ℂ) ^ ((c : ℂ) + (t : ℂ) * I)‖ = Real.exp (c * Real.log x) := by
+  have hx0 : (x : ℂ) ≠ 0 := by
+    simpa using hx.ne'
+  have hlog : Complex.log ((x:ℂ)) = (Real.log x : ℂ) := by
+    apply Complex.ext
+    · rw [Complex.log_re]
+      simp [Real.norm_eq_abs, abs_of_pos hx]
+    · rw [Complex.log_im, Complex.arg_ofReal_of_nonneg (le_of_lt hx)]
+      simp
+  rw [cpow_def_of_ne_zero hx0, Complex.norm_exp, hlog]
+  rw [Complex.mul_re]
+  simp only [Complex.ofReal_re, Complex.ofReal_im, Complex.add_re, Complex.add_im, Complex.mul_re,
+    Complex.mul_im, Complex.I_re, Complex.I_im, mul_zero, mul_one, sub_zero, add_zero]
+  congr 1
+  ring
+
+end BMORProp21
+
+-- ==== BMORVerticalBound.lean ====
+
+
+/-!
+# Bounding a vertical leg of the contour
+
+`‖∫_{a}^{b} x^{c+it} F(c+it) dt‖ ≤ x^c · ∫_{a}^{b} ‖F(c+it)‖ dt`.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology
+
+/-- The vertical leg is controlled by `x^c` times the length-weighted norm of `F`. -/
+theorem norm_integral_cpow_vertical_le {x : ℝ} (hx : 0 < x) {c : ℝ} {F : ℂ → ℂ}
+    {a b : ℝ} (hab : a ≤ b) :
+    ‖∫ t in a..b, (x:ℂ) ^ ((c:ℂ) + (t:ℂ)*I) * F ((c:ℂ) + (t:ℂ)*I)‖
+      ≤ Real.exp (c * Real.log x) * ∫ t in a..b, ‖F ((c:ℂ) + (t:ℂ)*I)‖ := by
+  calc ‖∫ t in a..b, (x:ℂ) ^ ((c:ℂ) + (t:ℂ)*I) * F ((c:ℂ) + (t:ℂ)*I)‖
+      ≤ ∫ t in a..b, ‖(x:ℂ) ^ ((c:ℂ) + (t:ℂ)*I) * F ((c:ℂ) + (t:ℂ)*I)‖ :=
+        intervalIntegral.norm_integral_le_integral_norm hab
+    _ = ∫ t in a..b, Real.exp (c * Real.log x) * ‖F ((c:ℂ) + (t:ℂ)*I)‖ := by
+        apply intervalIntegral.integral_congr
+        intro t _
+        show ‖(x:ℂ) ^ ((c:ℂ) + (t:ℂ)*I) * F ((c:ℂ) + (t:ℂ)*I)‖
+          = Real.exp (c * Real.log x) * ‖F ((c:ℂ) + (t:ℂ)*I)‖
+        rw [norm_mul, norm_cpow_vertical hx]
+    _ = Real.exp (c * Real.log x) * ∫ t in a..b, ‖F ((c:ℂ) + (t:ℂ)*I)‖ := by
+        rw [intervalIntegral.integral_const_mul]
+
+end BMORProp21
+
+-- ==== BMORHorizBound.lean ====
+
+
+/-!
+# Bounding a horizontal leg of the contour
+
+`‖∫_{x₁}^{x₂} x^{t+iy} F(t+iy) dt‖ ≤ x^{x₂} · ∫_{x₁}^{x₂} ‖F(t+iy)‖ dt` for `x > 1`, `x₁ ≤ x₂`.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology
+
+/-- The horizontal leg is controlled by `x^{x₂}` times the norm integral. -/
+theorem norm_segH_cpow_le {x : ℝ} (hx : 1 < x) {G : ℂ → ℂ} {y x₁ x₂ : ℝ} (h12 : x₁ ≤ x₂)
+    (hGc : Continuous fun t : ℝ => G ((t:ℂ) + (y:ℂ)*I)) :
+    ‖∫ t in x₁..x₂, (x:ℂ) ^ ((t:ℂ) + (y:ℂ)*I) * G ((t:ℂ) + (y:ℂ)*I)‖
+      ≤ Real.exp (x₂ * Real.log x) * ∫ t in x₁..x₂, ‖G ((t:ℂ) + (y:ℂ)*I)‖ := by
+  have hx0 : (0:ℝ) < x := lt_trans zero_lt_one hx
+  have hlog : 0 ≤ Real.log x := le_of_lt (Real.log_pos hx)
+  have hnorm : Continuous fun t : ℝ => ‖G ((t:ℂ) + (y:ℂ)*I)‖ :=
+    (continuous_norm : Continuous fun z : ℂ => ‖z‖).comp hGc
+  calc ‖∫ t in x₁..x₂, (x:ℂ) ^ ((t:ℂ) + (y:ℂ)*I) * G ((t:ℂ) + (y:ℂ)*I)‖
+      ≤ ∫ t in x₁..x₂, ‖(x:ℂ) ^ ((t:ℂ) + (y:ℂ)*I) * G ((t:ℂ) + (y:ℂ)*I)‖ :=
+        intervalIntegral.norm_integral_le_integral_norm h12
+    _ = ∫ t in x₁..x₂, Real.exp (t * Real.log x) * ‖G ((t:ℂ) + (y:ℂ)*I)‖ := by
+        apply intervalIntegral.integral_congr
+        intro t _
+        show ‖(x:ℂ) ^ ((t:ℂ) + (y:ℂ)*I) * G ((t:ℂ) + (y:ℂ)*I)‖
+          = Real.exp (t * Real.log x) * ‖G ((t:ℂ) + (y:ℂ)*I)‖
+        rw [norm_mul, norm_cpow_vertical hx0]
+    _ ≤ ∫ t in x₁..x₂, Real.exp (x₂ * Real.log x) * ‖G ((t:ℂ) + (y:ℂ)*I)‖ := by
+        apply intervalIntegral.integral_mono_on h12
+        · exact (Real.continuous_exp.comp (continuous_id.mul continuous_const)).mul hnorm |>.intervalIntegrable _ _
+        · exact (continuous_const.mul hnorm).intervalIntegrable _ _
+        · intro t ht
+          have ht2 : t ≤ x₂ := (Set.mem_Icc.mp ht).2
+          have hle : t * Real.log x ≤ x₂ * Real.log x := by nlinarith
+          exact mul_le_mul_of_nonneg_right (Real.exp_le_exp.mpr hle) (norm_nonneg _)
+    _ = Real.exp (x₂ * Real.log x) * ∫ t in x₁..x₂, ‖G ((t:ℂ) + (y:ℂ)*I)‖ := by
+        rw [intervalIntegral.integral_const_mul]
+
+end BMORProp21
+
+-- ==== BMORBndBound2.lean ====
+
+
+/-!
+# The far-contour estimate: algebraic core and the full boundary bound
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology
+
+/-- Pure complex arithmetic bound behind the boundary estimate. -/
+theorem norm_sub_add_I_le {F1 F2 G1 G2 : ℂ} :
+    ‖(F1 - F2) + I*G2 - I*G1‖ ≤ ‖F1‖ + ‖F2‖ + ‖G2‖ + ‖G1‖ := by
+  have h1 : ‖(F1 - F2) + I*G2 - I*G1‖ ≤ ‖(F1 - F2) + I*G2‖ + ‖I*G1‖ := norm_sub_le _ _
+  have h2 : ‖(F1 - F2) + I*G2‖ ≤ ‖F1 - F2‖ + ‖I*G2‖ := norm_add_le _ _
+  have h3 : ‖F1 - F2‖ ≤ ‖F1‖ + ‖F2‖ := norm_sub_le _ _
+  have h4 : ‖I*G2‖ = ‖G2‖ := by rw [norm_mul, Complex.norm_I, one_mul]
+  have h5 : ‖I*G1‖ = ‖G1‖ := by rw [norm_mul, Complex.norm_I, one_mul]
+  linarith [h1, h2, h3, h4, h5]
+
+/-- The full boundary estimate for `x^s·G`. -/
+theorem norm_bnd_cpow_le {x : ℝ} (hx : 1 < x) {G : ℂ → ℂ} {x₁ x₂ y₁ y₂ : ℝ}
+    (hx12 : x₁ ≤ x₂) (hy12 : y₁ ≤ y₂)
+    (hH1 : Continuous fun t : ℝ => G ((t:ℂ) + (y₁:ℂ)*I))
+    (hH2 : Continuous fun t : ℝ => G ((t:ℂ) + (y₂:ℂ)*I))
+    (hV1 : Continuous fun t : ℝ => G ((x₁:ℂ) + (t:ℂ)*I))
+    (hV2 : Continuous fun t : ℝ => G ((x₂:ℂ) + (t:ℂ)*I))
+    (hle : Real.exp (x₁ * Real.log x) ≤ Real.exp (x₂ * Real.log x)) :
+    ‖bnd (fun s => (x:ℂ) ^ s * G s) x₁ x₂ y₁ y₂‖
+      ≤ Real.exp (x₂ * Real.log x) *
+          ((∫ t in x₁..x₂, ‖G ((t:ℂ) + (y₁:ℂ)*I)‖)
+            + (∫ t in x₁..x₂, ‖G ((t:ℂ) + (y₂:ℂ)*I)‖)
+            + (∫ t in y₁..y₂, ‖G ((x₂:ℂ) + (t:ℂ)*I)‖)
+            + (∫ t in y₁..y₂, ‖G ((x₁:ℂ) + (t:ℂ)*I)‖)) := by
+  have hx0 : (0:ℝ) < x := lt_trans zero_lt_one hx
+  have ha : 0 ≤ ∫ t in x₁..x₂, ‖G ((t:ℂ) + (y₁:ℂ)*I)‖ :=
+    intervalIntegral.integral_nonneg hx12 (fun t _ => norm_nonneg _)
+  have hb : 0 ≤ ∫ t in x₁..x₂, ‖G ((t:ℂ) + (y₂:ℂ)*I)‖ :=
+    intervalIntegral.integral_nonneg hx12 (fun t _ => norm_nonneg _)
+  have hc : 0 ≤ ∫ t in y₁..y₂, ‖G ((x₂:ℂ) + (t:ℂ)*I)‖ :=
+    intervalIntegral.integral_nonneg hy12 (fun t _ => norm_nonneg _)
+  have hd : 0 ≤ ∫ t in y₁..y₂, ‖G ((x₁:ℂ) + (t:ℂ)*I)‖ :=
+    intervalIntegral.integral_nonneg hy12 (fun t _ => norm_nonneg _)
+  have t1 : ‖(∫ t in x₁..x₂, (x:ℂ) ^ ((t:ℂ) + (y₁:ℂ)*I) * G ((t:ℂ) + (y₁:ℂ)*I))‖
+      ≤ Real.exp (x₂ * Real.log x) * ∫ t in x₁..x₂, ‖G ((t:ℂ) + (y₁:ℂ)*I)‖ :=
+    norm_segH_cpow_le (x := x) (G := G) (y := y₁) hx hx12 hH1
+  have t2 : ‖(∫ t in x₁..x₂, (x:ℂ) ^ ((t:ℂ) + (y₂:ℂ)*I) * G ((t:ℂ) + (y₂:ℂ)*I))‖
+      ≤ Real.exp (x₂ * Real.log x) * ∫ t in x₁..x₂, ‖G ((t:ℂ) + (y₂:ℂ)*I)‖ :=
+    norm_segH_cpow_le (x := x) (G := G) (y := y₂) hx hx12 hH2
+  have t3 : ‖(∫ t in y₁..y₂, (x:ℂ) ^ ((x₂:ℂ) + (t:ℂ)*I) * G ((x₂:ℂ) + (t:ℂ)*I))‖
+      ≤ Real.exp (x₂ * Real.log x) * ∫ t in y₁..y₂, ‖G ((x₂:ℂ) + (t:ℂ)*I)‖ :=
+    norm_integral_cpow_vertical_le (x := x) hx0 (c := x₂) (F := G) hy12
+  have t4 : ‖(∫ t in y₁..y₂, (x:ℂ) ^ ((x₁:ℂ) + (t:ℂ)*I) * G ((x₁:ℂ) + (t:ℂ)*I))‖
+      ≤ Real.exp (x₁ * Real.log x) * ∫ t in y₁..y₂, ‖G ((x₁:ℂ) + (t:ℂ)*I)‖ :=
+    norm_integral_cpow_vertical_le (x := x) hx0 (c := x₁) (F := G) hy12
+  have h4' : ‖(∫ t in y₁..y₂, (x:ℂ) ^ ((x₁:ℂ) + (t:ℂ)*I) * G ((x₁:ℂ) + (t:ℂ)*I))‖
+      ≤ Real.exp (x₂ * Real.log x) * ∫ t in y₁..y₂, ‖G ((x₁:ℂ) + (t:ℂ)*I)‖ :=
+    le_trans t4 (mul_le_mul_of_nonneg_right hle hd)
+  have hkey := norm_sub_add_I_le
+    (F1 := ∫ t in x₁..x₂, (x:ℂ) ^ ((t:ℂ) + (y₁:ℂ)*I) * G ((t:ℂ) + (y₁:ℂ)*I))
+    (F2 := ∫ t in x₁..x₂, (x:ℂ) ^ ((t:ℂ) + (y₂:ℂ)*I) * G ((t:ℂ) + (y₂:ℂ)*I))
+    (G2 := ∫ t in y₁..y₂, (x:ℂ) ^ ((x₂:ℂ) + (t:ℂ)*I) * G ((x₂:ℂ) + (t:ℂ)*I))
+    (G1 := ∫ t in y₁..y₂, (x:ℂ) ^ ((x₁:ℂ) + (t:ℂ)*I) * G ((x₁:ℂ) + (t:ℂ)*I))
+  unfold bnd segH segV
+  have step1 : ‖(∫ t in x₁..x₂, (x:ℂ) ^ ((t:ℂ) + (y₁:ℂ)*I) * G ((t:ℂ) + (y₁:ℂ)*I))
+        - (∫ t in x₁..x₂, (x:ℂ) ^ ((t:ℂ) + (y₂:ℂ)*I) * G ((t:ℂ) + (y₂:ℂ)*I))
+        + I * (∫ t in y₁..y₂, (x:ℂ) ^ ((x₂:ℂ) + (t:ℂ)*I) * G ((x₂:ℂ) + (t:ℂ)*I))
+        - I * (∫ t in y₁..y₂, (x:ℂ) ^ ((x₁:ℂ) + (t:ℂ)*I) * G ((x₁:ℂ) + (t:ℂ)*I))‖
+      ≤ Real.exp (x₂ * Real.log x) * (∫ t in x₁..x₂, ‖G ((t:ℂ) + (y₁:ℂ)*I)‖)
+        + Real.exp (x₂ * Real.log x) * (∫ t in x₁..x₂, ‖G ((t:ℂ) + (y₂:ℂ)*I)‖)
+        + Real.exp (x₂ * Real.log x) * (∫ t in y₁..y₂, ‖G ((x₂:ℂ) + (t:ℂ)*I)‖)
+        + Real.exp (x₂ * Real.log x) * (∫ t in y₁..y₂, ‖G ((x₁:ℂ) + (t:ℂ)*I)‖) := by
+    linarith [hkey, t1, t2, t3, h4']
+  calc ‖(∫ t in x₁..x₂, (x:ℂ) ^ ((t:ℂ) + (y₁:ℂ)*I) * G ((t:ℂ) + (y₁:ℂ)*I))
+        - (∫ t in x₁..x₂, (x:ℂ) ^ ((t:ℂ) + (y₂:ℂ)*I) * G ((t:ℂ) + (y₂:ℂ)*I))
+        + I * (∫ t in y₁..y₂, (x:ℂ) ^ ((x₂:ℂ) + (t:ℂ)*I) * G ((x₂:ℂ) + (t:ℂ)*I))
+        - I * (∫ t in y₁..y₂, (x:ℂ) ^ ((x₁:ℂ) + (t:ℂ)*I) * G ((x₁:ℂ) + (t:ℂ)*I))‖
+      ≤ Real.exp (x₂ * Real.log x) * (∫ t in x₁..x₂, ‖G ((t:ℂ) + (y₁:ℂ)*I)‖)
+        + Real.exp (x₂ * Real.log x) * (∫ t in x₁..x₂, ‖G ((t:ℂ) + (y₂:ℂ)*I)‖)
+        + Real.exp (x₂ * Real.log x) * (∫ t in y₁..y₂, ‖G ((x₂:ℂ) + (t:ℂ)*I)‖)
+        + Real.exp (x₂ * Real.log x) * (∫ t in y₁..y₂, ‖G ((x₁:ℂ) + (t:ℂ)*I)‖) := step1
+    _ = Real.exp (x₂ * Real.log x) *
+          ((∫ t in x₁..x₂, ‖G ((t:ℂ) + (y₁:ℂ)*I)‖)
+            + (∫ t in x₁..x₂, ‖G ((t:ℂ) + (y₂:ℂ)*I)‖)
+            + (∫ t in y₁..y₂, ‖G ((x₂:ℂ) + (t:ℂ)*I)‖)
+            + (∫ t in y₁..y₂, ‖G ((x₁:ℂ) + (t:ℂ)*I)‖)) := by ring
+
+end BMORProp21
+
+-- ==== BMORBndBoundOn.lean ====
+
+
+/-!
+# The far-contour estimate with continuity only on the leg
+
+Same bounds as `norm_segH_cpow_le` / `norm_integral_cpow_vertical_le` / `norm_bnd_cpow_le`, but
+requiring continuity only on the segment. This is what `L'/L` satisfies: it is continuous on the
+contour but not globally.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology
+
+/-- Horizontal leg, continuity on the segment only. -/
+theorem norm_segH_cpow_le_on {x : ℝ} (hx : 1 < x) {G : ℂ → ℂ} {y x₁ x₂ : ℝ} (h12 : x₁ ≤ x₂)
+    (hGc : ContinuousOn (fun t : ℝ => G ((t:ℂ) + (y:ℂ)*I)) (Set.uIcc x₁ x₂)) :
+    ‖∫ t in x₁..x₂, (x:ℂ) ^ ((t:ℂ) + (y:ℂ)*I) * G ((t:ℂ) + (y:ℂ)*I)‖
+      ≤ Real.exp (x₂ * Real.log x) * (∫ t in x₁..x₂, ‖G ((t:ℂ) + (y:ℂ)*I)‖) := by
+  have hx0 : (0:ℝ) < x := lt_trans zero_lt_one hx
+  have hlog : 0 ≤ Real.log x := le_of_lt (Real.log_pos hx)
+  have hnorm : ContinuousOn (fun t : ℝ => ‖G ((t:ℂ) + (y:ℂ)*I)‖) (Set.uIcc x₁ x₂) :=
+    (continuous_norm : Continuous fun z : ℂ => ‖z‖).comp_continuousOn hGc
+  calc ‖∫ t in x₁..x₂, (x:ℂ) ^ ((t:ℂ) + (y:ℂ)*I) * G ((t:ℂ) + (y:ℂ)*I)‖
+      ≤ ∫ t in x₁..x₂, ‖(x:ℂ) ^ ((t:ℂ) + (y:ℂ)*I) * G ((t:ℂ) + (y:ℂ)*I)‖ :=
+        intervalIntegral.norm_integral_le_integral_norm h12
+    _ = ∫ t in x₁..x₂, Real.exp (t * Real.log x) * ‖G ((t:ℂ) + (y:ℂ)*I)‖ := by
+        apply intervalIntegral.integral_congr
+        intro t _
+        show ‖(x:ℂ) ^ ((t:ℂ) + (y:ℂ)*I) * G ((t:ℂ) + (y:ℂ)*I)‖
+          = Real.exp (t * Real.log x) * ‖G ((t:ℂ) + (y:ℂ)*I)‖
+        rw [norm_mul, norm_cpow_vertical hx0]
+    _ ≤ ∫ t in x₁..x₂, Real.exp (x₂ * Real.log x) * ‖G ((t:ℂ) + (y:ℂ)*I)‖ := by
+        apply intervalIntegral.integral_mono_on h12
+        · have hc1 : ContinuousOn (fun t : ℝ => Real.exp (t * Real.log x) * ‖G ((t:ℂ) + (y:ℂ)*I)‖)
+              (Set.uIcc x₁ x₂) :=
+            (Real.continuous_exp.comp (continuous_id.mul continuous_const)).continuousOn.mul hnorm
+          exact hc1.intervalIntegrable
+        · have hc2 : ContinuousOn (fun t : ℝ => Real.exp (x₂ * Real.log x) * ‖G ((t:ℂ) + (y:ℂ)*I)‖)
+              (Set.uIcc x₁ x₂) :=
+            continuousOn_const.mul hnorm
+          exact hc2.intervalIntegrable
+        · intro t ht
+          have ht2 : t ≤ x₂ := (Set.mem_Icc.mp ht).2
+          have hle : t * Real.log x ≤ x₂ * Real.log x := by nlinarith
+          exact mul_le_mul_of_nonneg_right (Real.exp_le_exp.mpr hle) (norm_nonneg _)
+    _ = Real.exp (x₂ * Real.log x) * (∫ t in x₁..x₂, ‖G ((t:ℂ) + (y:ℂ)*I)‖) := by
+        rw [intervalIntegral.integral_const_mul]
+
+/-- Vertical leg, continuity on the segment only. -/
+theorem norm_segV_cpow_le_on {x : ℝ} (hx : 0 < x) {G : ℂ → ℂ} {c y₁ y₂ : ℝ} (h12 : y₁ ≤ y₂)
+    (hGc : ContinuousOn (fun t : ℝ => G ((c:ℂ) + (t:ℂ)*I)) (Set.uIcc y₁ y₂)) :
+    ‖∫ t in y₁..y₂, (x:ℂ) ^ ((c:ℂ) + (t:ℂ)*I) * G ((c:ℂ) + (t:ℂ)*I)‖
+      ≤ Real.exp (c * Real.log x) * (∫ t in y₁..y₂, ‖G ((c:ℂ) + (t:ℂ)*I)‖) := by
+  calc ‖∫ t in y₁..y₂, (x:ℂ) ^ ((c:ℂ) + (t:ℂ)*I) * G ((c:ℂ) + (t:ℂ)*I)‖
+      ≤ ∫ t in y₁..y₂, ‖(x:ℂ) ^ ((c:ℂ) + (t:ℂ)*I) * G ((c:ℂ) + (t:ℂ)*I)‖ :=
+        intervalIntegral.norm_integral_le_integral_norm h12
+    _ = ∫ t in y₁..y₂, Real.exp (c * Real.log x) * ‖G ((c:ℂ) + (t:ℂ)*I)‖ := by
+        apply intervalIntegral.integral_congr
+        intro t _
+        show ‖(x:ℂ) ^ ((c:ℂ) + (t:ℂ)*I) * G ((c:ℂ) + (t:ℂ)*I)‖
+          = Real.exp (c * Real.log x) * ‖G ((c:ℂ) + (t:ℂ)*I)‖
+        rw [norm_mul, norm_cpow_vertical hx]
+    _ = Real.exp (c * Real.log x) * (∫ t in y₁..y₂, ‖G ((c:ℂ) + (t:ℂ)*I)‖) := by
+        rw [intervalIntegral.integral_const_mul]
+
+end BMORProp21
+
+-- ==== BMORIntegralConst.lean ====
+
+
+/-!
+# A segment integral bounded by length times a uniform bound
+
+`F ≤ C` pointwise ⇒ `∫_a^b F ≤ (b-a)·C`. This turns a uniform bound on `‖g'/g‖` on the contour
+into the corresponding contribution to the error term.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology
+
+/-- A uniform pointwise bound gives a length-times-bound integral estimate. -/
+theorem integral_le_of_le_const {F : ℝ → ℝ} {a b C : ℝ} (hab : a ≤ b)
+    (hF : Continuous F) (h : ∀ t, F t ≤ C) :
+    ∫ t in a..b, F t ≤ (b - a) * C := by
+  have hconst : (∫ t in a..b, C) = (b - a) * C := by
+    rw [intervalIntegral.integral_const]
+    simp [smul_eq_mul]
+  rw [← hconst]
+  exact intervalIntegral.integral_mono_on hab (hF.intervalIntegrable _ _)
+    intervalIntegrable_const (fun t _ => h t)
+
+end BMORProp21
+
+-- ==== BMORLogDerivBound.lean ====
+
+
+/-!
+# Bounding `‖f'/f‖` by the zeros
+
+With `f = P·g` (`P` the zero factor, `g` zero-free on the rectangle),
+`‖f'/f(z)‖ ≤ Σ_ρ m_ρ·‖(z-ρ)⁻¹‖ + ‖g'/g(z)‖`.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+/-- The logarithmic derivative of `f` is bounded by the pole terms plus the cofactor term. -/
+theorem norm_logDeriv_factor_le {f g : ℂ → ℂ} (df : Differentiable ℂ f) (R : Set ℂ)
+    (hR : IsCompact R) {σ : Finset ℂ} {m : ℂ → ℕ}
+    (hP : ∀ z, BMORRectFactor.zeroFactorC f R z = ∏ a ∈ σ, (z-a)^(m a))
+    (hfg : ∀ z, f z = BMORRectFactor.zeroFactorC f R z * g z) (hg : Differentiable ℂ g)
+    {z : ℂ} (hz : ∀ a ∈ σ, z ≠ a) (hgz : g z ≠ 0) :
+    ‖logDeriv f z‖ ≤ (∑ a ∈ σ, (m a : ℝ) * ‖(z - a)⁻¹‖) + ‖logDeriv g z‖ := by
+  have hPne : BMORRectFactor.zeroFactorC f R z ≠ 0 := by
+    rw [hP z]
+    exact Finset.prod_ne_zero_iff.mpr (fun a ha => pow_ne_zero _ (sub_ne_zero.mpr (hz a ha)))
+  rw [BMORRectFactor.logDeriv_factor df R hR hfg hg hPne hgz,
+    logDeriv_zeroFactorC_eq R hP hz]
+  calc ‖(∑ a ∈ σ, (m a : ℂ) / (z - a)) + logDeriv g z‖
+      ≤ ‖∑ a ∈ σ, (m a : ℂ) / (z - a)‖ + ‖logDeriv g z‖ := norm_add_le _ _
+    _ ≤ (∑ a ∈ σ, ‖(m a : ℂ) / (z - a)‖) + ‖logDeriv g z‖ := by
+        have h := norm_sum_le σ (fun a => (m a : ℂ) / (z - a))
+        linarith
+    _ = (∑ a ∈ σ, (m a : ℝ) * ‖(z - a)⁻¹‖) + ‖logDeriv g z‖ := by
+        have hs : (∑ a ∈ σ, ‖(m a : ℂ) / (z - a)‖)
+            = ∑ a ∈ σ, (m a : ℝ) * ‖(z - a)⁻¹‖ := by
+          apply Finset.sum_congr rfl
+          intro a _
+          rw [norm_div, Complex.norm_natCast, norm_inv, div_eq_mul_inv]
+        rw [hs]
+
+end BMORProp21
+
+-- ==== BMORDistBound.lean ====
+
+
+/-!
+# The distance bound for the pole terms
+
+If `δ ≤ ‖φ t - ρ‖` on the segment, then `∫ ‖(φ t - ρ)⁻¹‖ ≤ (b - a)·δ⁻¹`.
+This is the elementary estimate that turns each zero into a `1/dist` contribution.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology
+
+/-- Pointwise: a lower bound on the distance gives a bound on the inverse. -/
+theorem norm_inv_sub_le {ρ z : ℂ} {δ : ℝ} (hδ : 0 < δ) (h : δ ≤ ‖z - ρ‖) :
+    ‖(z - ρ)⁻¹‖ ≤ δ⁻¹ := by
+  rw [norm_inv]
+  exact (inv_le_inv₀ (show (0:ℝ) < ‖z - ρ‖ by linarith) hδ).mpr h
+
+/-- The integral of `‖(φ t - ρ)⁻¹‖` is at most `length/δ`. -/
+theorem integral_norm_inv_sub_le {ρ : ℂ} {φ : ℝ → ℂ} {δ a b : ℝ} (hδ : 0 < δ) (hab : a ≤ b)
+    (hφc : Continuous φ) (h : ∀ t, δ ≤ ‖φ t - ρ‖) :
+    ∫ t in a..b, ‖(φ t - ρ)⁻¹‖ ≤ (b - a) * δ⁻¹ := by
+  have hne : ∀ t, φ t - ρ ≠ 0 := by
+    intro t h0
+    have : ‖φ t - ρ‖ = 0 := by rw [h0]; simp
+    linarith [h t]
+  have hint : IntervalIntegrable (fun t : ℝ => ‖(φ t - ρ)⁻¹‖) volume a b := by
+    apply Continuous.intervalIntegrable
+    exact (hφc.sub continuous_const).inv₀ hne |>.norm
+  have hconst : (∫ t in a..b, (δ⁻¹ : ℝ)) = (b - a) * δ⁻¹ := by
+    rw [intervalIntegral.integral_const]
+    simp [smul_eq_mul]
+  rw [← hconst]
+  apply intervalIntegral.integral_mono_on hab hint intervalIntegrable_const
+  intro t _
+  exact norm_inv_sub_le hδ (h t)
+
+end BMORProp21
+
+-- ==== BMORPoleIntegral.lean ====
+
+
+/-!
+# The pole sum integrated along a segment
+
+`∫ Σ_ρ m_ρ·‖(φ t - ρ)⁻¹‖ ≤ Σ_ρ m_ρ·((b-a)·δ_ρ⁻¹)`.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+
+/-- Real-valued finite sum of interval-integrable functions. -/
+theorem intervalIntegrable_finset_sum_real {ι : Type*} (σ : Finset ι) (g : ι → ℝ → ℝ)
+    {a b : ℝ} (h : ∀ i ∈ σ, IntervalIntegrable (g i) volume a b) :
+    IntervalIntegrable (fun t => ∑ i ∈ σ, g i t) volume a b := by
+  classical
+  induction σ using Finset.induction_on with
+  | empty => simpa using (continuous_const : Continuous fun _ : ℝ => (0:ℝ)).intervalIntegrable a b
+  | insert a0 s ha ih =>
+      have h1 := h a0 (Finset.mem_insert_self a0 s)
+      have h2 := ih (fun i hi => h i (Finset.mem_insert_of_mem hi))
+      have heq : (fun t => ∑ i ∈ insert a0 s, g i t) = (fun t => g a0 t + ∑ i ∈ s, g i t) := by
+        funext t
+        rw [Finset.sum_insert ha]
+      rw [heq]
+      exact h1.add h2
+/-- Real-valued finite sum interchange. -/
+theorem integral_finset_sum_gen_real {ι : Type*} (σ : Finset ι) (c : ι → ℝ) (f : ι → ℝ → ℝ)
+    {a b : ℝ} (h : ∀ i ∈ σ, IntervalIntegrable (fun t => f i t) volume a b) :
+    ∫ t in a..b, ∑ i ∈ σ, c i * f i t = ∑ i ∈ σ, c i * ∫ t in a..b, f i t := by
+  classical
+  induction σ using Finset.induction_on with
+  | empty => simp
+  | insert a0 s ha ih =>
+      have h1 : IntervalIntegrable (fun t => c a0 * f a0 t) volume a b :=
+        (h a0 (Finset.mem_insert_self a0 s)).const_mul (c a0)
+      have h2 : IntervalIntegrable (fun t => ∑ i ∈ s, c i * f i t) volume a b :=
+        intervalIntegrable_finset_sum_real s (fun i => fun t => c i * f i t)
+          (fun i hi => (h i (Finset.mem_insert_of_mem hi)).const_mul (c i))
+      have heq : (fun t => ∑ i ∈ insert a0 s, c i * f i t)
+          = (fun t => c a0 * f a0 t + ∑ i ∈ s, c i * f i t) := by
+        funext t
+        rw [Finset.sum_insert ha]
+      rw [heq, intervalIntegral.integral_add h1 h2, intervalIntegral.integral_const_mul,
+        ih (fun i hi => h i (Finset.mem_insert_of_mem hi)), Finset.sum_insert ha]
+
+/-- The integrated pole sum is bounded by the distance contributions. -/
+theorem integral_pole_sum_le {σ : Finset ℂ} {m : ℂ → ℕ} {φ : ℝ → ℂ} {δ : ℂ → ℝ}
+    (hφc : Continuous φ) {a b : ℝ} (hab : a ≤ b)
+    (hδ : ∀ ρ ∈ σ, 0 < δ ρ) (hdist : ∀ ρ ∈ σ, ∀ t, δ ρ ≤ ‖φ t - ρ‖) :
+    ∫ t in a..b, (∑ ρ ∈ σ, (m ρ : ℝ) * ‖(φ t - ρ)⁻¹‖)
+      ≤ ∑ ρ ∈ σ, (m ρ : ℝ) * ((b - a) * (δ ρ)⁻¹) := by
+  rw [integral_finset_sum_gen_real σ (fun ρ => (m ρ : ℝ)) (fun ρ t => ‖(φ t - ρ)⁻¹‖) ?_]
+  · apply Finset.sum_le_sum
+    intro ρ hρ
+    exact mul_le_mul_of_nonneg_left
+      (integral_norm_inv_sub_le (hδ ρ hρ) hab hφc (hdist ρ hρ)) (Nat.cast_nonneg _)
+  · intro ρ hρ
+    have hne : ∀ t, φ t - ρ ≠ 0 := by
+      intro t h0
+      have : ‖φ t - ρ‖ = 0 := by rw [h0]; simp
+      linarith [hdist ρ hρ t, hδ ρ hρ]
+    exact ((hφc.sub continuous_const).inv₀ hne).norm.intervalIntegrable _ _
+
+end BMORProp21
+
+-- ==== BMORLogDerivIntegral.lean ====
+
+
+/-!
+# The integrated `f'/f` bound
+
+`∫ ‖f'/f(φ t)‖ ≤ Σ_ρ m_ρ·((b-a)·δ_ρ⁻¹) + ∫ ‖g'/g(φ t)‖`.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+
+/-- Real-valued finite sum of continuous functions. -/
+theorem continuous_finset_sum_real {ι : Type*} (σ : Finset ι) (g : ι → ℝ → ℝ)
+    (h : ∀ i ∈ σ, Continuous (g i)) :
+    Continuous (fun t => ∑ i ∈ σ, g i t) := by
+  classical
+  induction σ using Finset.induction_on with
+  | empty => simpa using continuous_const
+  | insert a0 s ha ih =>
+      have h1 := h a0 (Finset.mem_insert_self a0 s)
+      have h2 := ih (fun i hi => h i (Finset.mem_insert_of_mem hi))
+      have heq : (fun t => ∑ i ∈ insert a0 s, g i t) = (fun t => g a0 t + ∑ i ∈ s, g i t) := by
+        funext t
+        rw [Finset.sum_insert ha]
+      rw [heq]
+      exact h1.add h2
+/-- The integrated logarithmic derivative is bounded by the pole contributions. -/
+theorem integral_norm_logDeriv_le {f g : ℂ → ℂ} (df : Differentiable ℂ f)
+    (hg : Differentiable ℂ g) {R : Set ℂ} (hR : IsCompact R) {σ : Finset ℂ} {m : ℂ → ℕ}
+    (hP : ∀ z, BMORRectFactor.zeroFactorC f R z = ∏ a ∈ σ, (z-a)^(m a))
+    (hfg : ∀ z, f z = BMORRectFactor.zeroFactorC f R z * g z)
+    (hne : ∀ z ∈ R, f z ≠ 0)
+    {φ : ℝ → ℂ} (hφc : Continuous φ) (hmaps : ∀ t, φ t ∈ R)
+    (hφne : ∀ ρ ∈ σ, ∀ t, φ t ≠ ρ)
+    {a b : ℝ} (hab : a ≤ b) {δ : ℂ → ℝ}
+    (hδ : ∀ ρ ∈ σ, 0 < δ ρ) (hdist : ∀ ρ ∈ σ, ∀ t, δ ρ ≤ ‖φ t - ρ‖) :
+    ∫ t in a..b, ‖logDeriv f (φ t)‖
+      ≤ (∑ ρ ∈ σ, (m ρ : ℝ) * ((b - a) * (δ ρ)⁻¹)) + ∫ t in a..b, ‖logDeriv g (φ t)‖ := by
+  have hgz : ∀ t, g (φ t) ≠ 0 := by
+    intro t h0
+    have h1 : f (φ t) = 0 := by
+      rw [hfg, h0, mul_zero]
+    exact hne _ (hmaps t) h1
+  have hpt : ∀ t, ‖logDeriv f (φ t)‖
+      ≤ (∑ ρ ∈ σ, (m ρ : ℝ) * ‖(φ t - ρ)⁻¹‖) + ‖logDeriv g (φ t)‖ :=
+    fun t => norm_logDeriv_factor_le df R hR hP hfg hg (fun ρ hρ => hφne ρ hρ t) (hgz t)
+  have hcontP : Continuous fun t => ∑ ρ ∈ σ, (m ρ : ℝ) * ‖(φ t - ρ)⁻¹‖ := by
+    apply continuous_finset_sum_real
+    intro ρ hρ
+    have hne' : ∀ t, φ t - ρ ≠ 0 := by
+      intro t h0
+      have : ‖φ t - ρ‖ = 0 := by rw [h0]; simp
+      linarith [hdist ρ hρ t, hδ ρ hρ]
+    exact continuous_const.mul ((hφc.sub continuous_const).inv₀ hne').norm
+  have hcontG : Continuous fun t => ‖logDeriv g (φ t)‖ := by
+    have hne' : ∀ t, g (φ t) ≠ 0 := hgz
+    have hdv : Differentiable ℂ (deriv g) := hg.deriv
+    exact ((hdv.continuous.comp hφc).div (hg.continuous.comp hφc) hne').norm
+  have hcontF : Continuous fun t => ‖logDeriv f (φ t)‖ := by
+    have hne' : ∀ t, f (φ t) ≠ 0 := fun t => hne _ (hmaps t)
+    have hdv : Differentiable ℂ (deriv f) := df.deriv
+    exact ((hdv.continuous.comp hφc).div (df.continuous.comp hφc) hne').norm
+  have iF : IntervalIntegrable (fun t => ‖logDeriv f (φ t)‖) volume a b :=
+    hcontF.intervalIntegrable _ _
+  have iG : IntervalIntegrable
+      (fun t => (∑ ρ ∈ σ, (m ρ : ℝ) * ‖(φ t - ρ)⁻¹‖) + ‖logDeriv g (φ t)‖) volume a b :=
+    (hcontP.add hcontG).intervalIntegrable _ _
+  have iS : IntervalIntegrable (fun t => ∑ ρ ∈ σ, (m ρ : ℝ) * ‖(φ t - ρ)⁻¹‖) volume a b :=
+    hcontP.intervalIntegrable _ _
+  have iN : IntervalIntegrable (fun t => ‖logDeriv g (φ t)‖) volume a b :=
+    hcontG.intervalIntegrable _ _
+  calc ∫ t in a..b, ‖logDeriv f (φ t)‖
+      ≤ ∫ t in a..b, ((∑ ρ ∈ σ, (m ρ : ℝ) * ‖(φ t - ρ)⁻¹‖) + ‖logDeriv g (φ t)‖) :=
+        intervalIntegral.integral_mono_on hab iF iG (fun t _ => hpt t)
+    _ = (∫ t in a..b, (∑ ρ ∈ σ, (m ρ : ℝ) * ‖(φ t - ρ)⁻¹‖))
+          + ∫ t in a..b, ‖logDeriv g (φ t)‖ :=
+        intervalIntegral.integral_add iS iN
+    _ ≤ (∑ ρ ∈ σ, (m ρ : ℝ) * ((b - a) * (δ ρ)⁻¹))
+          + ∫ t in a..b, ‖logDeriv g (φ t)‖ := by
+        have hp : ∫ t in a..b, (∑ ρ ∈ σ, (m ρ : ℝ) * ‖(φ t - ρ)⁻¹‖)
+            ≤ ∑ ρ ∈ σ, (m ρ : ℝ) * ((b - a) * (δ ρ)⁻¹) :=
+          integral_pole_sum_le hφc hab hδ hdist
+        linarith
+
+end BMORProp21
+
+-- ==== BMORDistOn.lean ====
+
+
+/-!
+# The pole sum on a segment, with all hypotheses on the segment
+
+`∫_a^b Σ_ρ m_ρ·‖(φ t - ρ)⁻¹‖ ≤ Σ_ρ m_ρ·((b-a)·δ_ρ⁻¹)` where `δ_ρ ≤ ‖φ t - ρ‖` only for
+`t ∈ uIcc a b`. This is what the contour legs actually satisfy.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+/-- Segment version of the distance integral bound. -/
+theorem integral_norm_inv_sub_le_on {ρ : ℂ} {φ : ℝ → ℂ} {δ a b : ℝ} (hδ : 0 < δ) (hab : a ≤ b)
+    (hφc : Continuous φ) (h : ∀ t ∈ Set.uIcc a b, δ ≤ ‖φ t - ρ‖) :
+    ∫ t in a..b, ‖(φ t - ρ)⁻¹‖ ≤ (b - a) * δ⁻¹ := by
+  have hne : ∀ t ∈ Set.uIcc a b, φ t - ρ ≠ 0 := by
+    intro t ht h0
+    have h0' : ‖φ t - ρ‖ = 0 := by rw [h0]; simp
+    linarith [h t ht]
+  have hcont : ContinuousOn (fun t : ℝ => ‖(φ t - ρ)⁻¹‖) (Set.uIcc a b) :=
+    (((hφc.sub continuous_const).continuousOn).inv₀ hne).norm
+  have hconst : (∫ t in a..b, (δ⁻¹ : ℝ)) = (b - a) * δ⁻¹ := by
+    rw [intervalIntegral.integral_const]
+    simp [smul_eq_mul]
+  rw [← hconst]
+  exact intervalIntegral.integral_mono_on hab hcont.intervalIntegrable
+    intervalIntegrable_const (fun t ht => norm_inv_sub_le hδ (h t (by rw [Set.uIcc_of_le hab]; exact ht)))
+
+/-- Segment version of the integrated pole sum bound. -/
+theorem integral_pole_sum_le_on {σ : Finset ℂ} {m : ℂ → ℕ} {φ : ℝ → ℂ} {δ : ℂ → ℝ}
+    (hφc : Continuous φ) {a b : ℝ} (hab : a ≤ b)
+    (hδ : ∀ ρ ∈ σ, 0 < δ ρ) (hdist : ∀ ρ ∈ σ, ∀ t ∈ Set.uIcc a b, δ ρ ≤ ‖φ t - ρ‖) :
+    ∫ t in a..b, (∑ ρ ∈ σ, (m ρ : ℝ) * ‖(φ t - ρ)⁻¹‖)
+      ≤ ∑ ρ ∈ σ, (m ρ : ℝ) * ((b - a) * (δ ρ)⁻¹) := by
+  rw [integral_finset_sum_gen_real σ (fun ρ => (m ρ : ℝ)) (fun ρ t => ‖(φ t - ρ)⁻¹‖) ?_]
+  · apply Finset.sum_le_sum
+    intro ρ hρ
+    exact mul_le_mul_of_nonneg_left
+      (integral_norm_inv_sub_le_on (hδ ρ hρ) hab hφc (hdist ρ hρ)) (Nat.cast_nonneg _)
+  · intro ρ hρ
+    have hne : ∀ t ∈ Set.uIcc a b, φ t - ρ ≠ 0 := by
+      intro t ht h0
+      have h0' : ‖φ t - ρ‖ = 0 := by rw [h0]; simp
+      linarith [hdist ρ hρ t ht, hδ ρ hρ]
+    exact ((((hφc.sub continuous_const).continuousOn).inv₀ hne).norm).intervalIntegrable
+
+end BMORProp21
+
+-- ==== BMORBndFinal.lean ====
+
+
+/-!
+# The far-contour estimate for `x^s · (f'/f)`
+
+`‖bnd (x^s·f'/f)‖ ≤ x^{x₂} · (sum of the four norm integrals of `f'/f`)`, requiring only that `f`
+does not vanish on the rectangle.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology
+
+/-- `f'/f` is continuous at any point where `f` does not vanish. -/
+theorem continuousAt_logDeriv {f : ℂ → ℂ} (df : Differentiable ℂ f) {z : ℂ} (hz : f z ≠ 0) :
+    ContinuousAt (logDeriv f) z :=
+  ((df.deriv.differentiableAt).div df.differentiableAt hz).continuousAt
+
+/-- The full boundary estimate with continuity only on the legs. -/
+theorem norm_bnd_cpow_le_on {x : ℝ} (hx : 1 < x) {G : ℂ → ℂ} {x₁ x₂ y₁ y₂ : ℝ}
+    (hx12 : x₁ ≤ x₂) (hy12 : y₁ ≤ y₂)
+    (hH1 : ContinuousOn (fun t : ℝ => G ((t:ℂ) + (y₁:ℂ)*I)) (Set.uIcc x₁ x₂))
+    (hH2 : ContinuousOn (fun t : ℝ => G ((t:ℂ) + (y₂:ℂ)*I)) (Set.uIcc x₁ x₂))
+    (hV1 : ContinuousOn (fun t : ℝ => G ((x₁:ℂ) + (t:ℂ)*I)) (Set.uIcc y₁ y₂))
+    (hV2 : ContinuousOn (fun t : ℝ => G ((x₂:ℂ) + (t:ℂ)*I)) (Set.uIcc y₁ y₂))
+    (hle : Real.exp (x₁ * Real.log x) ≤ Real.exp (x₂ * Real.log x)) :
+    ‖bnd (fun s => (x:ℂ) ^ s * G s) x₁ x₂ y₁ y₂‖
+      ≤ Real.exp (x₂ * Real.log x) *
+          ((∫ t in x₁..x₂, ‖G ((t:ℂ) + (y₁:ℂ)*I)‖)
+            + (∫ t in x₁..x₂, ‖G ((t:ℂ) + (y₂:ℂ)*I)‖)
+            + (∫ t in y₁..y₂, ‖G ((x₂:ℂ) + (t:ℂ)*I)‖)
+            + (∫ t in y₁..y₂, ‖G ((x₁:ℂ) + (t:ℂ)*I)‖)) := by
+  have hx0 : (0:ℝ) < x := lt_trans zero_lt_one hx
+  have ha : 0 ≤ ∫ t in x₁..x₂, ‖G ((t:ℂ) + (y₁:ℂ)*I)‖ :=
+    intervalIntegral.integral_nonneg hx12 (fun t _ => norm_nonneg _)
+  have hb : 0 ≤ ∫ t in x₁..x₂, ‖G ((t:ℂ) + (y₂:ℂ)*I)‖ :=
+    intervalIntegral.integral_nonneg hx12 (fun t _ => norm_nonneg _)
+  have hc : 0 ≤ ∫ t in y₁..y₂, ‖G ((x₂:ℂ) + (t:ℂ)*I)‖ :=
+    intervalIntegral.integral_nonneg hy12 (fun t _ => norm_nonneg _)
+  have hd : 0 ≤ ∫ t in y₁..y₂, ‖G ((x₁:ℂ) + (t:ℂ)*I)‖ :=
+    intervalIntegral.integral_nonneg hy12 (fun t _ => norm_nonneg _)
+  have t1 : ‖(∫ t in x₁..x₂, (x:ℂ) ^ ((t:ℂ) + (y₁:ℂ)*I) * G ((t:ℂ) + (y₁:ℂ)*I))‖
+      ≤ Real.exp (x₂ * Real.log x) * (∫ t in x₁..x₂, ‖G ((t:ℂ) + (y₁:ℂ)*I)‖) :=
+    norm_segH_cpow_le_on (x := x) (G := G) (y := y₁) hx hx12 hH1
+  have t2 : ‖(∫ t in x₁..x₂, (x:ℂ) ^ ((t:ℂ) + (y₂:ℂ)*I) * G ((t:ℂ) + (y₂:ℂ)*I))‖
+      ≤ Real.exp (x₂ * Real.log x) * (∫ t in x₁..x₂, ‖G ((t:ℂ) + (y₂:ℂ)*I)‖) :=
+    norm_segH_cpow_le_on (x := x) (G := G) (y := y₂) hx hx12 hH2
+  have t3 : ‖(∫ t in y₁..y₂, (x:ℂ) ^ ((x₂:ℂ) + (t:ℂ)*I) * G ((x₂:ℂ) + (t:ℂ)*I))‖
+      ≤ Real.exp (x₂ * Real.log x) * (∫ t in y₁..y₂, ‖G ((x₂:ℂ) + (t:ℂ)*I)‖) :=
+    norm_segV_cpow_le_on (x := x) hx0 (c := x₂) (G := G) hy12 hV2
+  have t4 : ‖(∫ t in y₁..y₂, (x:ℂ) ^ ((x₁:ℂ) + (t:ℂ)*I) * G ((x₁:ℂ) + (t:ℂ)*I))‖
+      ≤ Real.exp (x₁ * Real.log x) * (∫ t in y₁..y₂, ‖G ((x₁:ℂ) + (t:ℂ)*I)‖) :=
+    norm_segV_cpow_le_on (x := x) hx0 (c := x₁) (G := G) hy12 hV1
+  have h4' : ‖(∫ t in y₁..y₂, (x:ℂ) ^ ((x₁:ℂ) + (t:ℂ)*I) * G ((x₁:ℂ) + (t:ℂ)*I))‖
+      ≤ Real.exp (x₂ * Real.log x) * (∫ t in y₁..y₂, ‖G ((x₁:ℂ) + (t:ℂ)*I)‖) :=
+    le_trans t4 (mul_le_mul_of_nonneg_right hle hd)
+  have hkey := norm_sub_add_I_le
+    (F1 := ∫ t in x₁..x₂, (x:ℂ) ^ ((t:ℂ) + (y₁:ℂ)*I) * G ((t:ℂ) + (y₁:ℂ)*I))
+    (F2 := ∫ t in x₁..x₂, (x:ℂ) ^ ((t:ℂ) + (y₂:ℂ)*I) * G ((t:ℂ) + (y₂:ℂ)*I))
+    (G2 := ∫ t in y₁..y₂, (x:ℂ) ^ ((x₂:ℂ) + (t:ℂ)*I) * G ((x₂:ℂ) + (t:ℂ)*I))
+    (G1 := ∫ t in y₁..y₂, (x:ℂ) ^ ((x₁:ℂ) + (t:ℂ)*I) * G ((x₁:ℂ) + (t:ℂ)*I))
+  unfold bnd segH segV
+  have step1 : ‖(∫ t in x₁..x₂, (x:ℂ) ^ ((t:ℂ) + (y₁:ℂ)*I) * G ((t:ℂ) + (y₁:ℂ)*I))
+        - (∫ t in x₁..x₂, (x:ℂ) ^ ((t:ℂ) + (y₂:ℂ)*I) * G ((t:ℂ) + (y₂:ℂ)*I))
+        + I * (∫ t in y₁..y₂, (x:ℂ) ^ ((x₂:ℂ) + (t:ℂ)*I) * G ((x₂:ℂ) + (t:ℂ)*I))
+        - I * (∫ t in y₁..y₂, (x:ℂ) ^ ((x₁:ℂ) + (t:ℂ)*I) * G ((x₁:ℂ) + (t:ℂ)*I))‖
+      ≤ Real.exp (x₂ * Real.log x) * (∫ t in x₁..x₂, ‖G ((t:ℂ) + (y₁:ℂ)*I)‖)
+        + Real.exp (x₂ * Real.log x) * (∫ t in x₁..x₂, ‖G ((t:ℂ) + (y₂:ℂ)*I)‖)
+        + Real.exp (x₂ * Real.log x) * (∫ t in y₁..y₂, ‖G ((x₂:ℂ) + (t:ℂ)*I)‖)
+        + Real.exp (x₂ * Real.log x) * (∫ t in y₁..y₂, ‖G ((x₁:ℂ) + (t:ℂ)*I)‖) := by
+    linarith [hkey, t1, t2, t3, h4']
+  calc ‖(∫ t in x₁..x₂, (x:ℂ) ^ ((t:ℂ) + (y₁:ℂ)*I) * G ((t:ℂ) + (y₁:ℂ)*I))
+        - (∫ t in x₁..x₂, (x:ℂ) ^ ((t:ℂ) + (y₂:ℂ)*I) * G ((t:ℂ) + (y₂:ℂ)*I))
+        + I * (∫ t in y₁..y₂, (x:ℂ) ^ ((x₂:ℂ) + (t:ℂ)*I) * G ((x₂:ℂ) + (t:ℂ)*I))
+        - I * (∫ t in y₁..y₂, (x:ℂ) ^ ((x₁:ℂ) + (t:ℂ)*I) * G ((x₁:ℂ) + (t:ℂ)*I))‖
+      ≤ Real.exp (x₂ * Real.log x) * (∫ t in x₁..x₂, ‖G ((t:ℂ) + (y₁:ℂ)*I)‖)
+        + Real.exp (x₂ * Real.log x) * (∫ t in x₁..x₂, ‖G ((t:ℂ) + (y₂:ℂ)*I)‖)
+        + Real.exp (x₂ * Real.log x) * (∫ t in y₁..y₂, ‖G ((x₂:ℂ) + (t:ℂ)*I)‖)
+        + Real.exp (x₂ * Real.log x) * (∫ t in y₁..y₂, ‖G ((x₁:ℂ) + (t:ℂ)*I)‖) := step1
+    _ = Real.exp (x₂ * Real.log x) *
+          ((∫ t in x₁..x₂, ‖G ((t:ℂ) + (y₁:ℂ)*I)‖)
+            + (∫ t in x₁..x₂, ‖G ((t:ℂ) + (y₂:ℂ)*I)‖)
+            + (∫ t in y₁..y₂, ‖G ((x₂:ℂ) + (t:ℂ)*I)‖)
+            + (∫ t in y₁..y₂, ‖G ((x₁:ℂ) + (t:ℂ)*I)‖)) := by ring
+
+
+/-- The far-contour estimate for `x^s · (f'/f)`. -/
+theorem norm_bnd_cpow_logDeriv_le {f : ℂ → ℂ} (df : Differentiable ℂ f)
+    {x : ℝ} (hx : 1 < x) {x₁ x₂ y₁ y₂ : ℝ} (hx12 : x₁ ≤ x₂) (hy12 : y₁ ≤ y₂)
+    (hne : ∀ z ∈ rectSet x₁ x₂ y₁ y₂, f z ≠ 0)
+    (hle : Real.exp (x₁ * Real.log x) ≤ Real.exp (x₂ * Real.log x)) :
+    ‖bnd (fun s => (x:ℂ) ^ s * logDeriv f s) x₁ x₂ y₁ y₂‖
+      ≤ Real.exp (x₂ * Real.log x) *
+          ((∫ t in x₁..x₂, ‖logDeriv f ((t:ℂ) + (y₁:ℂ)*I)‖)
+            + (∫ t in x₁..x₂, ‖logDeriv f ((t:ℂ) + (y₂:ℂ)*I)‖)
+            + (∫ t in y₁..y₂, ‖logDeriv f ((x₂:ℂ) + (t:ℂ)*I)‖)
+            + (∫ t in y₁..y₂, ‖logDeriv f ((x₁:ℂ) + (t:ℂ)*I)‖)) := by
+  apply norm_bnd_cpow_le_on (G := fun z => logDeriv f z) hx hx12 hy12 _ _ _ _ hle
+  · intro t ht
+    exact (continuousAt_logDeriv df (hne _ ⟨by simpa using ht, by simpa using Set.left_mem_uIcc⟩)).comp_continuousWithinAt
+      (cont_h y₁).continuousAt.continuousWithinAt
+  · intro t ht
+    exact (continuousAt_logDeriv df (hne _ ⟨by simpa using ht, by simpa using Set.right_mem_uIcc⟩)).comp_continuousWithinAt
+      (cont_h y₂).continuousAt.continuousWithinAt
+  · intro t ht
+    exact (continuousAt_logDeriv df (hne _ ⟨by simpa using Set.left_mem_uIcc, by simpa using ht⟩)).comp_continuousWithinAt
+      (cont_v x₁).continuousAt.continuousWithinAt
+  · intro t ht
+    exact (continuousAt_logDeriv df (hne _ ⟨by simpa using Set.right_mem_uIcc, by simpa using ht⟩)).comp_continuousWithinAt
+      (cont_v x₂).continuousAt.continuousWithinAt
+end BMORProp21
+
+-- ==== BMORLogDerivIntegralOn2.lean ====
+
+
+/-!
+# The integrated `f'/f` bound, all hypotheses on the segment
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+/-- Segment version of the integrated logarithmic derivative bound. -/
+theorem integral_norm_logDeriv_le_on {f g : ℂ → ℂ} (df : Differentiable ℂ f)
+    (hg : Differentiable ℂ g) {R : Set ℂ} (hR : IsCompact R) {σ : Finset ℂ} {m : ℂ → ℕ}
+    (hP : ∀ z, BMORRectFactor.zeroFactorC f R z = ∏ a ∈ σ, (z-a)^(m a))
+    (hfg : ∀ z, f z = BMORRectFactor.zeroFactorC f R z * g z)
+    (hne : ∀ z ∈ R, f z ≠ 0)
+    {φ : ℝ → ℂ} (hφc : Continuous φ) {a b : ℝ}
+    (hmaps : ∀ t ∈ Set.uIcc a b, φ t ∈ R)
+    (hφne : ∀ ρ ∈ σ, ∀ t ∈ Set.uIcc a b, φ t ≠ ρ)
+    (hab : a ≤ b) {δ : ℂ → ℝ}
+    (hδ : ∀ ρ ∈ σ, 0 < δ ρ)
+    (hdist : ∀ ρ ∈ σ, ∀ t ∈ Set.uIcc a b, δ ρ ≤ ‖φ t - ρ‖) :
+    ∫ t in a..b, ‖logDeriv f (φ t)‖
+      ≤ (∑ ρ ∈ σ, (m ρ : ℝ) * ((b - a) * (δ ρ)⁻¹))
+        + ∫ t in a..b, ‖logDeriv g (φ t)‖ := by
+  have hmem : a ∈ Set.uIcc a b := by
+    rw [Set.uIcc_of_le hab]
+    exact Set.left_mem_Icc.mpr hab
+  have hgz : ∀ t ∈ Set.uIcc a b, g (φ t) ≠ 0 := by
+    intro t ht h0
+    have h1 : f (φ t) = 0 := by rw [hfg, h0, mul_zero]
+    exact hne _ (hmaps t ht) h1
+  have hpt : ∀ t ∈ Set.uIcc a b, ‖logDeriv f (φ t)‖
+      ≤ (∑ ρ ∈ σ, (m ρ : ℝ) * ‖(φ t - ρ)⁻¹‖) + ‖logDeriv g (φ t)‖ :=
+    fun t ht => norm_logDeriv_factor_le df R hR hP hfg hg (fun ρ hρ => hφne ρ hρ t ht) (hgz t ht)
+  have hcontF : ContinuousOn (fun t => ‖logDeriv f (φ t)‖) (Set.uIcc a b) := by
+    intro t ht
+    exact ((continuousAt_logDeriv df (hne _ (hmaps t ht))).comp_continuousWithinAt
+      hφc.continuousAt.continuousWithinAt).norm
+  have hcontG : ContinuousOn (fun t => ‖logDeriv g (φ t)‖) (Set.uIcc a b) := by
+    intro t ht
+    exact ((continuousAt_logDeriv hg (hgz t ht)).comp_continuousWithinAt
+      hφc.continuousAt.continuousWithinAt).norm
+  have hterm : ∀ ρ ∈ σ, IntervalIntegrable
+      (fun t => (m ρ : ℝ) * ‖(φ t - ρ)⁻¹‖) volume a b := by
+    intro ρ hρ
+    have hne' : ∀ t ∈ Set.uIcc a b, φ t - ρ ≠ 0 :=
+      fun t ht => sub_ne_zero.mpr (hφne ρ hρ t ht)
+    have hc : ContinuousOn (fun t => (m ρ : ℝ) * ‖(φ t - ρ)⁻¹‖) (Set.uIcc a b) :=
+      continuousOn_const.mul (((hφc.sub continuous_const).continuousOn).inv₀ hne').norm
+    exact hc.intervalIntegrable
+  have iS : IntervalIntegrable (fun t => ∑ ρ ∈ σ, (m ρ : ℝ) * ‖(φ t - ρ)⁻¹‖) volume a b :=
+    intervalIntegrable_finset_sum_real σ (fun ρ t => (m ρ : ℝ) * ‖(φ t - ρ)⁻¹‖) hterm
+  have iN : IntervalIntegrable (fun t => ‖logDeriv g (φ t)‖) volume a b :=
+    hcontG.intervalIntegrable
+  have iF : IntervalIntegrable (fun t => ‖logDeriv f (φ t)‖) volume a b :=
+    hcontF.intervalIntegrable
+  have iG : IntervalIntegrable
+      (fun t => (∑ ρ ∈ σ, (m ρ : ℝ) * ‖(φ t - ρ)⁻¹‖) + ‖logDeriv g (φ t)‖) volume a b :=
+    iS.add iN
+  calc ∫ t in a..b, ‖logDeriv f (φ t)‖
+      ≤ ∫ t in a..b, ((∑ ρ ∈ σ, (m ρ : ℝ) * ‖(φ t - ρ)⁻¹‖) + ‖logDeriv g (φ t)‖) :=
+        intervalIntegral.integral_mono_on hab iF iG (fun t ht => hpt t (by rw [Set.uIcc_of_le hab]; exact ht))
+    _ = (∫ t in a..b, (∑ ρ ∈ σ, (m ρ : ℝ) * ‖(φ t - ρ)⁻¹‖))
+          + ∫ t in a..b, ‖logDeriv g (φ t)‖ :=
+        intervalIntegral.integral_add iS iN
+    _ ≤ (∑ ρ ∈ σ, (m ρ : ℝ) * ((b - a) * (δ ρ)⁻¹))
+          + ∫ t in a..b, ‖logDeriv g (φ t)‖ := by
+        have hp : ∫ t in a..b, (∑ ρ ∈ σ, (m ρ : ℝ) * ‖(φ t - ρ)⁻¹‖)
+            ≤ ∑ ρ ∈ σ, (m ρ : ℝ) * ((b - a) * (δ ρ)⁻¹) :=
+          integral_pole_sum_le_on hφc hab hδ hdist
+        linarith
+
+end BMORProp21
+
+-- ==== BMORContourData.lean ====
+
+
+/-!
+# Packaging the contour data
+
+The final contour estimate needs the same six facts about `(f, g, R, σ, m, δ, C_g)` at every leg.
+Bundling them into a structure keeps the hypothesis count of the theorem within what Lean's
+elaborator can handle (see the notes on the "size wall").
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+/-- Segment version of the uniform-bound integral estimate. -/
+theorem integral_le_of_le_const_on {F : ℝ → ℝ} {a b C : ℝ} (hab : a ≤ b)
+    (hF : ContinuousOn F (Set.uIcc a b)) (h : ∀ t ∈ Set.uIcc a b, F t ≤ C) :
+    ∫ t in a..b, F t ≤ (b - a) * C := by
+  have hconst : (∫ t in a..b, C) = (b - a) * C := by
+    rw [intervalIntegral.integral_const]
+    simp [smul_eq_mul]
+  rw [← hconst]
+  exact intervalIntegral.integral_mono_on hab hF.intervalIntegrable
+    intervalIntegrable_const
+    (fun t ht => h t (by rw [Set.uIcc_of_le hab]; exact ht))
+
+/-- The data needed for the contour estimate. -/
+structure ContourData (f g : ℂ → ℂ) (R : Set ℂ) (σ : Finset ℂ) (m : ℂ → ℕ) where
+  /-- `P` is the zero factor as a finite product. -/
+  hP : ∀ z, BMORRectFactor.zeroFactorC f R z = ∏ a ∈ σ, (z-a)^(m a)
+  /-- `f` factors as `P·g`. -/
+  hfg : ∀ z, f z = BMORRectFactor.zeroFactorC f R z * g z
+  /-- `f` does not vanish on `R`. -/
+  hne : ∀ z ∈ R, f z ≠ 0
+  /-- Distance from each zero to `R`. -/
+  delta : ℂ → ℝ
+  hδ : ∀ ρ ∈ σ, 0 < delta ρ
+  hdist : ∀ ρ ∈ σ, ∀ z ∈ R, delta ρ ≤ ‖z - ρ‖
+  /-- Uniform bound on `g'/g` on `R`. -/
+  Cg : ℝ
+  hCg : ∀ z ∈ R, ‖logDeriv g z‖ ≤ Cg
+
+end BMORProp21
+
+-- ==== BMORLegBound.lean ====
+
+
+/-!
+# One leg of the contour estimate
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+/-- The `f'/f` integral along one leg is bounded by the pole contributions plus `length·C_g`. -/
+theorem leg_bound {f g : ℂ → ℂ} (df : Differentiable ℂ f) (hg : Differentiable ℂ g)
+    {R : Set ℂ} (hR : IsCompact R) {σ : Finset ℂ} {m : ℂ → ℕ}
+    (D : ContourData f g R σ m) {φ : ℝ → ℂ} (hφc : Continuous φ) {a b : ℝ} (hab : a ≤ b)
+    (hmaps : ∀ t ∈ Set.uIcc a b, φ t ∈ R) :
+    ∫ t in a..b, ‖logDeriv f (φ t)‖
+      ≤ (∑ ρ ∈ σ, (m ρ : ℝ) * ((b - a) * (D.delta ρ)⁻¹)) + (b - a) * D.Cg := by
+  have hφne : ∀ ρ ∈ σ, ∀ t ∈ Set.uIcc a b, φ t ≠ ρ := by
+    intro ρ hρ t ht h0
+    have hd := D.hdist ρ hρ (φ t) (hmaps t ht)
+    rw [h0, sub_self, norm_zero] at hd
+    linarith [D.hδ ρ hρ]
+  have hgz : ∀ t ∈ Set.uIcc a b, g (φ t) ≠ 0 := by
+    intro t ht h0
+    have h1 : f (φ t) = 0 := by rw [D.hfg, h0, mul_zero]
+    exact D.hne _ (hmaps t ht) h1
+  have h1 := integral_norm_logDeriv_le_on df hg hR D.hP D.hfg D.hne hφc hmaps hφne hab D.hδ
+    (fun ρ hρ t ht => D.hdist ρ hρ (φ t) (hmaps t ht))
+  have hcontG : ContinuousOn (fun t => ‖logDeriv g (φ t)‖) (Set.uIcc a b) :=
+    fun t ht => ((continuousAt_logDeriv hg (hgz t ht)).comp_continuousWithinAt
+      hφc.continuousAt.continuousWithinAt).norm
+  have h2 : ∫ t in a..b, ‖logDeriv g (φ t)‖ ≤ (b - a) * D.Cg :=
+    integral_le_of_le_const_on hab hcontG (fun t ht => D.hCg _ (hmaps t ht))
+  linarith
+
+end BMORProp21
+
+-- ==== BMORFinalBound.lean ====
+
+
+/-!
+# The final contour estimate
+
+`‖bnd (x^s·(f'/f))‖ ≤ x^{x₂}·(2(x₂-x₁) + 2(y₂-y₁))·(Σ_ρ m_ρ·δ_ρ⁻¹ + C_g)`.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+set_option maxHeartbeats 800000 in
+/-- The final contour estimate. -/
+theorem norm_bnd_cpow_logDeriv_le_final {f g : ℂ → ℂ} (df : Differentiable ℂ f)
+    (hg : Differentiable ℂ g) {R : Set ℂ} (hR : IsCompact R) {σ : Finset ℂ} {m : ℂ → ℕ}
+    (D : ContourData f g R σ m)
+    {x : ℝ} (hx : 1 < x) {x₁ x₂ y₁ y₂ : ℝ} (hx12 : x₁ ≤ x₂) (hy12 : y₁ ≤ y₂)
+    (hRr : R = rectSet x₁ x₂ y₁ y₂)
+    (hle : Real.exp (x₁ * Real.log x) ≤ Real.exp (x₂ * Real.log x)) :
+    ‖bnd (fun s => (x:ℂ) ^ s * logDeriv f s) x₁ x₂ y₁ y₂‖
+      ≤ Real.exp (x₂ * Real.log x) *
+          ((2 * (x₂ - x₁) + 2 * (y₂ - y₁)) *
+            ((∑ ρ ∈ σ, (m ρ : ℝ) * (D.delta ρ)⁻¹) + D.Cg)) := by
+  subst hRr
+  have hH1c : ContinuousOn (fun t : ℝ => logDeriv f ((t:ℂ) + (y₁:ℂ)*I)) (Set.uIcc x₁ x₂) := by
+    intro t ht
+    exact (continuousAt_logDeriv df (D.hne _ ⟨by simpa using ht, by simpa using Set.left_mem_uIcc⟩))
+      |>.comp_continuousWithinAt (cont_h y₁).continuousAt.continuousWithinAt
+  have hH2c : ContinuousOn (fun t : ℝ => logDeriv f ((t:ℂ) + (y₂:ℂ)*I)) (Set.uIcc x₁ x₂) := by
+    intro t ht
+    exact (continuousAt_logDeriv df (D.hne _ ⟨by simpa using ht, by simpa using Set.right_mem_uIcc⟩))
+      |>.comp_continuousWithinAt (cont_h y₂).continuousAt.continuousWithinAt
+  have hV1c : ContinuousOn (fun t : ℝ => logDeriv f ((x₁:ℂ) + (t:ℂ)*I)) (Set.uIcc y₁ y₂) := by
+    intro t ht
+    exact (continuousAt_logDeriv df (D.hne _ ⟨by simpa using Set.left_mem_uIcc, by simpa using ht⟩))
+      |>.comp_continuousWithinAt (cont_v x₁).continuousAt.continuousWithinAt
+  have hV2c : ContinuousOn (fun t : ℝ => logDeriv f ((x₂:ℂ) + (t:ℂ)*I)) (Set.uIcc y₁ y₂) := by
+    intro t ht
+    exact (continuousAt_logDeriv df (D.hne _ ⟨by simpa using Set.right_mem_uIcc, by simpa using ht⟩))
+      |>.comp_continuousWithinAt (cont_v x₂).continuousAt.continuousWithinAt
+  have bH1 := leg_bound df hg hR D (cont_h y₁) hx12
+    (fun t ht => ⟨by simpa using ht, by simpa using Set.left_mem_uIcc⟩)
+  have bH2 := leg_bound df hg hR D (cont_h y₂) hx12
+    (fun t ht => ⟨by simpa using ht, by simpa using Set.right_mem_uIcc⟩)
+  have bV2 := leg_bound df hg hR D (cont_v x₂) hy12
+    (fun t ht => ⟨by simpa using Set.right_mem_uIcc, by simpa using ht⟩)
+  have bV1 := leg_bound df hg hR D (cont_v x₁) hy12
+    (fun t ht => ⟨by simpa using Set.left_mem_uIcc, by simpa using ht⟩)
+  have hS : ∀ L : ℝ, (∑ ρ ∈ σ, (m ρ : ℝ) * (L * (D.delta ρ)⁻¹))
+      = L * (∑ ρ ∈ σ, (m ρ : ℝ) * (D.delta ρ)⁻¹) := by
+    intro L
+    rw [Finset.mul_sum]
+    exact Finset.sum_congr rfl (fun ρ _ => by ring)
+  have hA : (∫ t in x₁..x₂, ‖logDeriv f ((t:ℂ) + (y₁:ℂ)*I)‖)
+      ≤ (x₂ - x₁) * ((∑ ρ ∈ σ, (m ρ : ℝ) * (D.delta ρ)⁻¹) + D.Cg) := by
+    rw [hS] at bH1
+    nlinarith [bH1]
+  have hB : (∫ t in x₁..x₂, ‖logDeriv f ((t:ℂ) + (y₂:ℂ)*I)‖)
+      ≤ (x₂ - x₁) * ((∑ ρ ∈ σ, (m ρ : ℝ) * (D.delta ρ)⁻¹) + D.Cg) := by
+    rw [hS] at bH2
+    nlinarith [bH2]
+  have hC : (∫ t in y₁..y₂, ‖logDeriv f ((x₂:ℂ) + (t:ℂ)*I)‖)
+      ≤ (y₂ - y₁) * ((∑ ρ ∈ σ, (m ρ : ℝ) * (D.delta ρ)⁻¹) + D.Cg) := by
+    rw [hS] at bV2
+    nlinarith [bV2]
+  have hDD : (∫ t in y₁..y₂, ‖logDeriv f ((x₁:ℂ) + (t:ℂ)*I)‖)
+      ≤ (y₂ - y₁) * ((∑ ρ ∈ σ, (m ρ : ℝ) * (D.delta ρ)⁻¹) + D.Cg) := by
+    rw [hS] at bV1
+    nlinarith [bV1]
+  have hbase := norm_bnd_cpow_le_on (x := x) (G := fun z => logDeriv f z) hx hx12 hy12
+    hH1c hH2c hV1c hV2c hle
+  refine le_trans hbase ?_
+  apply mul_le_mul_of_nonneg_left _ (le_of_lt (Real.exp_pos (x₂ * Real.log x)))
+  nlinarith [hA, hB, hC, hDD, hx12, hy12]
 
 end BMORProp21
 -- ==== end analytic infrastructure block ====
