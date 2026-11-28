@@ -60,7 +60,7 @@ import Mathlib.Analysis.Calculus.LogDeriv
 import Mathlib.Analysis.Meromorphic.FactorizedRational
 import Mathlib.MeasureTheory.Integral.IntervalIntegral.FundThmCalculus
 
--- ==== analytic infrastructure block (BMORAnalyticBlock, 127 lemmas) ====
+-- ==== analytic infrastructure block (BMORAnalyticBlock, 128 lemmas) ====
 
 
 -- ==== BMORRectFactor.lean ====
@@ -3061,6 +3061,50 @@ theorem norm_bnd_cpow_logDeriv_le_final {f g : ℂ → ℂ} (df : Differentiable
   refine le_trans hbase ?_
   apply mul_le_mul_of_nonneg_left _ (le_of_lt (Real.exp_pos (x₂ * Real.log x)))
   nlinarith [hA, hB, hC, hDD, hx12, hy12]
+
+end BMORProp21
+
+-- ==== BMORZeroSum.lean ====
+
+
+/-!
+# The zero sum is bounded by the contour estimate
+
+`‖2πi · Σ_ρ m_ρ · x^ρ‖ ≤ x^{x₂}·(2(x₂-x₁) + 2(y₂-y₁))·(Σ_ρ m_ρ·δ_ρ⁻¹ + C_g)`.
+
+This is the exact cross-zero identity (the boundary integral equals the weighted zero sum)
+combined with the contour estimate.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+set_option maxHeartbeats 800000 in
+/-- Explicit bound for the weighted zero sum. -/
+theorem norm_zero_sum_le {f g : ℂ → ℂ} (df : Differentiable ℂ f)
+    (hg : Differentiable ℂ g) {x₁ x₂ y₁ y₂ : ℝ}
+    (hR : IsCompact (rectSet x₁ x₂ y₁ y₂)) {σ : Finset ℂ} {m : ℂ → ℕ}
+    (D : ContourData f g (rectSet x₁ x₂ y₁ y₂) σ m)
+    {x : ℝ} (hx : 1 < x) (hx12 : x₁ ≤ x₂) (hy12 : y₁ ≤ y₂)
+    (hin : ∀ ρ ∈ σ, x₁ < ρ.re ∧ ρ.re < x₂ ∧ y₁ < ρ.im ∧ ρ.im < y₂)
+    (hle : Real.exp (x₁ * Real.log x) ≤ Real.exp (x₂ * Real.log x)) :
+    ‖(2 * (Real.pi : ℂ) * I) * ∑ ρ ∈ σ, (m ρ : ℂ) * (x:ℂ) ^ ρ‖
+      ≤ Real.exp (x₂ * Real.log x) *
+          ((2 * (x₂ - x₁) + 2 * (y₂ - y₁)) *
+            ((∑ ρ ∈ σ, (m ρ : ℝ) * (D.delta ρ)⁻¹) + D.Cg)) := by
+  have hgne : ∀ z ∈ rectSet x₁ x₂ y₁ y₂, g z ≠ 0 := by
+    intro z hz h0
+    have h1 : f z = 0 := by simp only [D.hfg z, h0, mul_zero]
+    exact D.hne z hz h1
+  have heq : bnd (fun s => (x:ℂ) ^ s * logDeriv f s) x₁ x₂ y₁ y₂
+      = (2 * (Real.pi : ℂ) * I) * ∑ ρ ∈ σ, (m ρ : ℂ) * (x:ℂ) ^ ρ :=
+    cross_zero (σ := σ) (m := m) df hg (x := (x:ℂ))
+      (by exact_mod_cast (ne_of_gt (lt_trans zero_lt_one hx)) : (x:ℂ) ≠ 0)
+      (K := fun s => (x:ℂ) ^ s) (fun s => rfl) hR rfl D.hP D.hfg hgne hin hx12 hy12
+  rw [← heq]
+  exact norm_bnd_cpow_logDeriv_le_final df hg hR D hx hx12 hy12 rfl hle
 
 end BMORProp21
 -- ==== end analytic infrastructure block ====
