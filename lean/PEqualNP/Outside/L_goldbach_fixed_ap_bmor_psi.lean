@@ -51,6 +51,2066 @@ import Mathlib.NumberTheory.ArithmeticFunction.VonMangoldt
 import Mathlib.Algebra.BigOperators.Group.Finset.Sigma
 import Mathlib.Data.Nat.ModEq
 import Mathlib.NumberTheory.Bernoulli
+import Mathlib.Analysis.Complex.RemovableSingularity
+import Mathlib.Analysis.SpecialFunctions.Pow.Complex
+import Mathlib.Analysis.SpecialFunctions.Complex.Arg
+import Mathlib.Analysis.SpecialFunctions.Trigonometric.ArctanDeriv
+import Mathlib.Analysis.Calculus.LogDeriv
+import Mathlib.Analysis.Meromorphic.FactorizedRational
+import Mathlib.MeasureTheory.Integral.IntervalIntegral.FundThmCalculus
+
+-- ==== analytic infrastructure block (BMORAnalyticBlock) ====
+
+
+-- ==== BMORRectFactor.lean ====
+
+
+/-!
+# Factoring out the zeros on a compact set
+
+`BMORDiskFactor.exists_entire_cofactor` performs this on a closed disk. The Perron contour needs
+the same statement on a **closed rectangle**, so this file generalises the argument to an
+arbitrary compact set.
+-/
+
+namespace BMORRectFactor
+open Complex Filter Set MeromorphicOn
+open scoped Topology
+noncomputable section
+
+/-- Removing every zero on a compact set, with its exact multiplicity, gives a globally entire
+cofactor that does not vanish on the set. -/
+theorem exists_entire_cofactor_compact {f : ℂ→ℂ} (df : Differentiable ℂ f)
+    (R : Set ℂ) (hR : IsCompact R) {c : ℂ} (fc : f c ≠ 0) :
+    ∃ g : ℂ→ℂ, Differentiable ℂ g ∧ (∀ z∈R, g z≠0) ∧
+      ∀ z, f z = (∏ᶠ u, (·-u) ^ (divisor f R u)) z * g z := by
+  classical
+  let d := divisor f R
+  let P : ℂ→ℂ := ∏ᶠ u, (·-u) ^ d u
+  have hfin := d.finiteSupport hR
+  have a : AnalyticOnNhd ℂ f R := fun z _ => df.analyticAt z
+  have whole : AnalyticOnNhd ℂ f univ := fun z _ => df.analyticAt z
+  have dn : 0 ≤ d := a.divisor_nonneg
+  have pa (z : ℂ) : AnalyticAt ℂ P z := Function.FactorizedRational.analyticAt (dn z)
+  have noTop (z : ℂ) : meromorphicOrderAt f z ≠ ⊤ := by
+    apply whole.meromorphicOn.meromorphicOrderAt_ne_top_of_isPreconnected isPreconnected_univ
+      (mem_univ c) (mem_univ z)
+    rw [(df.analyticAt c).meromorphicOrderAt_eq,(df.analyticAt c).analyticOrderAt_eq_zero.mpr fc]
+    simp
+  let A := P⁻¹ * f
+  let g := toMeromorphicNFOn A univ
+  have mA : MeromorphicOn A univ := fun z _ => (pa z).meromorphicAt.inv.mul (df.analyticAt z).meromorphicAt
+  have nf (z : ℂ) : MeromorphicNFAt g z := meromorphicNFOn_toMeromorphicNFOn A univ (mem_univ z)
+  have ord (z : ℂ) : meromorphicOrderAt g z = -(d z : WithTop ℤ) + meromorphicOrderAt f z := by
+    change meromorphicOrderAt (toMeromorphicNFOn A univ) z = _
+    rw [meromorphicOrderAt_toMeromorphicNFOn mA (mem_univ z),meromorphicOrderAt_mul (pa z).meromorphicAt.inv (df.analyticAt z).meromorphicAt,meromorphicOrderAt_inv,
+      show meromorphicOrderAt P z=(d z : WithTop ℤ) from Function.FactorizedRational.meromorphicOrderAt_eq _ hfin]
+  have inner (z : ℂ) (hz : z∈R) : meromorphicOrderAt g z=0 := by
+    rw [ord]
+    change -((divisor f R z : ℤ) : WithTop ℤ) + _ = _
+    rw [a.meromorphicOn.divisor_apply hz]
+    lift meromorphicOrderAt f z to ℤ using noTop z with b h
+    simp
+  have ga (z : ℂ) : AnalyticAt ℂ g z := by
+    apply (nf z).meromorphicOrderAt_nonneg_iff_analyticAt.mp
+    by_cases hz : z∈R
+    · rw [inner z hz]
+    · have dz : d z=0 := by simp [d,hz]
+      simpa [ord,dz] using (df.analyticAt z).meromorphicOrderAt_nonneg
+  refine ⟨g,fun z => (ga z).differentiableAt, fun z hz => (nf z).meromorphicOrderAt_eq_zero_iff.mp (inner z hz),?_⟩
+  intro z
+  have pnt : ∀ᶠ w in 𝓝[≠] z, P w ≠0 :=
+    (meromorphicOrderAt_ne_top_iff_eventually_ne_zero (pa z).meromorphicAt).mp
+      (Function.FactorizedRational.meromorphicOrderAt_ne_top d)
+  have he : f =ᶠ[𝓝[≠] z] P*g := by
+    filter_upwards [pnt,mA.toMeromorphicNFOn_eq_self_on_nhdsNE (mem_univ z)] with w hw he
+    change g w=(P w)⁻¹*f w at he
+    simp [Pi.mul_apply,he,hw]
+  exact tendsto_nhds_unique_of_eventuallyEq ((df z).continuousAt.continuousWithinAt)
+    (((pa z).continuousAt.mul (ga z).continuousAt).continuousWithinAt) he
+
+end
+end BMORRectFactor
+
+-- ==== BMORRectProd.lean ====
+
+
+/-!
+# The zero factor on a compact set as a finite product
+
+`∏ᶠ u, (· - u)^(divisor f R u) = ∏ a ∈ roots, (· - a)^(mult a)`, the compact-set analogue of
+`BMORDiskFactor.factor_prod`.
+-/
+
+namespace BMORRectFactor
+open Complex Filter Set MeromorphicOn
+open scoped Topology BigOperators
+noncomputable section
+
+/-- The zero factor of `f` on the compact set `R`. -/
+def zeroFactorC (f : ℂ → ℂ) (R : Set ℂ) : ℂ → ℂ := ∏ᶠ u, (·-u) ^ (divisor f R u)
+
+/-- The zeros of `f` on `R`, as a finset. -/
+def rootsC (f : ℂ → ℂ) (R : Set ℂ) (hR : IsCompact R) : Finset ℂ :=
+  ((divisor f R).finiteSupport hR).toFinset
+
+/-- The multiplicity of a zero. -/
+def multC (f : ℂ → ℂ) (R : Set ℂ) (a : ℂ) : ℕ := (divisor f R a).toNat
+
+/-- The zero factor is a finite product over the zeros. -/
+theorem factor_prod_compact {f : ℂ → ℂ} (df : Differentiable ℂ f) (R : Set ℂ)
+    (hR : IsCompact R) (z : ℂ) :
+    zeroFactorC f R z = ∏ a ∈ rootsC f R hR, (z-a)^(multC f R a) := by
+  classical
+  let d := divisor f R
+  have hfin := d.finiteSupport hR
+  have aa : AnalyticOnNhd ℂ f R := fun x _ => df.analyticAt x
+  have dn : 0 ≤ d := aa.divisor_nonneg
+  unfold zeroFactorC
+  rw [finprod_eq_prod_of_mulSupport_subset (s := rootsC f R hR)]
+  · rw [Finset.prod_apply]
+    apply Finset.prod_congr rfl
+    intro a _
+    change (z-a)^(d a) = (z-a)^(d a).toNat
+    rw [← zpow_natCast, Int.toNat_of_nonneg (dn a)]
+  · rw [Function.FactorizedRational.mulSupport]
+    simp [rootsC]
+
+end
+end BMORRectFactor
+
+-- ==== BMORLogDerivFactor.lean ====
+
+
+/-!
+# The logarithmic derivative of `f = P · g`
+
+On the boundary of the rectangle the zero factor `P` does not vanish, so `f'/f = P'/P + g'/g`
+holds there pointwise.
+-/
+
+namespace BMORRectFactor
+open Complex Filter Set MeromorphicOn
+open scoped Topology BigOperators
+noncomputable section
+
+/-- The zero factor is entire. -/
+theorem differentiable_zeroFactorC {f : ℂ → ℂ} (df : Differentiable ℂ f) (R : Set ℂ)
+    (hR : IsCompact R) : Differentiable ℂ (zeroFactorC f R) := by
+  have aa : AnalyticOnNhd ℂ f R := fun x _ => df.analyticAt x
+  have dn : 0 ≤ divisor f R := aa.divisor_nonneg
+  intro z
+  exact (Function.FactorizedRational.analyticAt (dn z)).differentiableAt
+
+/-- A point outside the compact set is not a zero of the factor. -/
+theorem divisor_eq_zero_of_not_mem {f : ℂ → ℂ} {R : Set ℂ} {a : ℂ} (ha : a ∉ R) :
+    divisor f R a = 0 := by
+  simp [divisor, ha]
+
+/-- The zero factor does not vanish away from the zeros. -/
+theorem zeroFactorC_ne_zero {f : ℂ → ℂ} (df : Differentiable ℂ f) {R : Set ℂ}
+    (hR : IsCompact R) {z : ℂ} (hz : ∀ a ∈ rootsC f R hR, z ≠ a) :
+    zeroFactorC f R z ≠ 0 := by
+  rw [factor_prod_compact df R hR z]
+  exact Finset.prod_ne_zero_iff.mpr (fun a ha => pow_ne_zero _ (sub_ne_zero.mpr (hz a ha)))
+
+/-- Pointwise logarithmic derivative of a factorisation `f = P·g`. -/
+theorem logDeriv_factor {f g : ℂ → ℂ} (df : Differentiable ℂ f) (R : Set ℂ)
+    (hR : IsCompact R) (hfg : ∀ z, f z = zeroFactorC f R z * g z)
+    (hg : Differentiable ℂ g) {z : ℂ} (hz : zeroFactorC f R z ≠ 0) (hgz : g z ≠ 0) :
+    logDeriv f z = logDeriv (zeroFactorC f R) z + logDeriv g z := by
+  have hlhs : logDeriv (fun w => zeroFactorC f R w * g w) z = logDeriv f z := by
+    congr 1
+    exact (funext hfg).symm
+  rw [← hlhs]
+  exact logDeriv_mul z hz hgz
+    (differentiable_zeroFactorC df R hR).differentiableAt hg.differentiableAt
+
+end
+end BMORRectFactor
+
+-- ==== BMORSideIntegral.lean ====
+
+
+/-!
+# One-dimensional pieces of the rectangle residue computation
+
+To evaluate `∫_{∂R} 1/(s-a) ds` along the four sides of a rectangle one needs, on each horizontal
+side, the antiderivative `log (t - a)` of `t ↦ (t - a)⁻¹`. The antiderivative lives on the slit
+plane, so the hypotheses are stated as "the imaginary part never vanishes", which for a horizontal
+side at height `y` reduces to `y ≠ a.im`.
+-/
+
+namespace BMORProp21
+
+open Complex
+
+/-- Pointwise derivative of `t ↦ log (t - a)` along the real axis. -/
+theorem hasDerivAt_log_sub (a : ℂ) (x : ℝ) (hx : ((x:ℂ) - a) ∈ Complex.slitPlane) :
+    HasDerivAt (fun t : ℝ => Complex.log ((t:ℂ) - a)) (((x:ℂ) - a)⁻¹) x := by
+  have h1 : HasDerivAt (fun t : ℝ => (t:ℂ) - a) (1:ℂ) x := by
+    simpa using (Complex.ofRealCLM.hasDerivAt (x := x)).sub_const a
+  have h2 : HasDerivAt Complex.log (((x:ℂ) - a)⁻¹) ((x:ℂ) - a) :=
+    Complex.hasDerivAt_log hx
+  simpa only [Function.comp_def, mul_one] using h2.comp x h1
+
+/-- Fundamental theorem of calculus on a horizontal side, for the Perron kernel `1/(s-a)`. -/
+theorem integral_inv_sub {a : ℂ} {x₁ x₂ : ℝ}
+    (h : ∀ t ∈ Set.uIcc x₁ x₂, ((t:ℂ) - a) ∈ Complex.slitPlane) :
+    ∫ t in x₁..x₂, ((t:ℂ) - a)⁻¹
+      = Complex.log ((x₂:ℂ) - a) - Complex.log ((x₁:ℂ) - a) := by
+  apply intervalIntegral.integral_eq_sub_of_hasDerivAt
+  · intro t ht
+    exact hasDerivAt_log_sub a t (h t ht)
+  · apply ContinuousOn.intervalIntegrable
+    apply ContinuousOn.inv₀
+    · fun_prop
+    · intro t ht
+      exact Complex.slitPlane_ne_zero (h t ht)
+
+/-- The horizontal side at height `y` avoids the branch cut whenever `y ≠ a.im`. -/
+theorem mem_slitPlane_sub {a : ℂ} {y t : ℝ} (hy : y ≠ a.im) :
+    ((t:ℂ) - (a - (y:ℂ)*I)) ∈ Complex.slitPlane := by
+  have hz : ((t:ℂ) - (a - (y:ℂ)*I)).im = y - a.im := by simp
+  rw [Complex.mem_slitPlane_iff]
+  exact Or.inr (by rw [hz]; exact sub_ne_zero.mpr hy)
+
+/-- Integral of the Perron kernel along a horizontal segment that misses the branch cut. -/
+theorem integral_inv_sub_horiz {a : ℂ} {x₁ x₂ y : ℝ} (hy : y ≠ a.im) :
+    ∫ t in x₁..x₂, (((t:ℂ) + (y:ℂ)*I - a)⁻¹)
+      = Complex.log ((x₂:ℂ) + (y:ℂ)*I - a) - Complex.log ((x₁:ℂ) + (y:ℂ)*I - a) := by
+  have hmain : ∫ t in x₁..x₂, ((t:ℂ) - (a - (y:ℂ)*I))⁻¹
+      = Complex.log ((x₂:ℂ) - (a - (y:ℂ)*I)) - Complex.log ((x₁:ℂ) - (a - (y:ℂ)*I)) := by
+    apply integral_inv_sub
+    intro t _
+    exact mem_slitPlane_sub (a := a) (y := y) (t := t) hy
+  have e : ∀ t : ℝ, ((t:ℂ) + (y:ℂ)*I - a) = ((t:ℂ) - (a - (y:ℂ)*I)) := fun t => by ring
+  simp only [e]
+  exact hmain
+
+end BMORProp21
+
+-- ==== BMORVertical.lean ====
+
+
+/-!
+# The vertical side of the rectangle residue computation — algebraic core
+
+For `c ≠ 0` the vertical side contributes `∫ (c + i u)⁻¹ du`. Unlike the horizontal side, the
+principal `Complex.log` is useless here: for `c < 0` the path crosses the branch cut and the
+principal logarithm is neither differentiable nor continuous there.
+
+The way out is the elementary identity
+
+`(c + i u)⁻¹ = c/(c^2+u^2) - i·u/(c^2+u^2)`,
+
+which splits the complex integral into two *real* integrals,
+
+`∫ c/(c^2+u^2) du = arctan (u/c)`   and   `∫ u/(c^2+u^2) du = (1/2) log (c^2+u^2)`,
+
+both with everywhere-continuous antiderivatives. This file records the algebraic identity.
+-/
+
+namespace BMORProp21
+
+open Complex
+
+/-- Splitting the Perron kernel on a vertical side into its real and imaginary parts. -/
+theorem vertical_kernel_split {c u : ℝ} (hc : c ≠ 0) :
+    (((c:ℂ) + (u:ℂ)*I)⁻¹) = ((c/(c^2+u^2) : ℝ) : ℂ) - I * ((u/(c^2+u^2) : ℝ) : ℂ) := by
+  have h0 : (c^2 + u^2 : ℝ) ≠ 0 := by positivity
+  have hne : ((c:ℂ) + (u:ℂ)*I) ≠ 0 := by
+    intro h
+    have hre := congrArg Complex.re h
+    simp only [Complex.add_re, Complex.ofReal_re, Complex.mul_re, Complex.ofReal_im,
+      Complex.I_re, Complex.I_im, mul_zero, mul_one, sub_zero, add_zero] at hre
+    exact hc hre
+  refine inv_eq_of_mul_eq_one_left ?_
+  push_cast
+  have hden : ((c:ℂ)^2 + (u:ℂ)^2) ≠ 0 := by
+    have he : ((c:ℂ)^2 + (u:ℂ)^2) = ((c^2+u^2 : ℝ) : ℂ) := by push_cast; ring
+    rw [he]
+    exact_mod_cast h0
+  field_simp [hden]
+  have hI : Complex.I ^ 2 = (-1 : ℂ) := Complex.I_sq
+  calc ((c:ℂ) - (u:ℂ) * Complex.I) * ((c:ℂ) + (u:ℂ) * Complex.I)
+      = ((c:ℂ))^2 - ((u:ℂ))^2 * Complex.I^2 := by ring
+    _ = ((c:ℂ))^2 - ((u:ℂ))^2 * (-1) := by rw [hI]
+    _ = ((c:ℂ))^2 + ((u:ℂ))^2 := by ring
+
+end BMORProp21
+
+-- ==== BMORVerticalReal.lean ====
+
+
+/-!
+# The vertical side of the rectangle residue computation
+
+For `c ≠ 0` the vertical side contributes `∫ (c + i u)⁻¹ du`. The principal `Complex.log` is
+useless here: for `c < 0` the path crosses the branch cut. Instead we split
+
+`(c + i u)⁻¹ = c/(c^2+u^2) - i·u/(c^2+u^2)`
+
+into two real integrals whose antiderivatives are everywhere continuous:
+`arctan (u/c)` and `½ log (c^2+u^2)`. No branch bookkeeping is needed.
+-/
+
+namespace BMORProp21
+
+open Complex
+
+/-- `c/(c^2+u^2)` is the derivative of `u ↦ arctan (u/c)`. -/
+theorem hasDerivAt_arctan_div {c : ℝ} (hc : c ≠ 0) (u : ℝ) :
+    HasDerivAt (fun t : ℝ => Real.arctan (t/c)) (c/(c^2+u^2)) u := by
+  have hinner : HasDerivAt (fun t : ℝ => t/c) (1/c) u := by
+    simpa using (hasDerivAt_id u).div_const c
+  have houter : HasDerivAt Real.arctan (1/(1+((u/c))^2)) (u/c) := Real.hasDerivAt_arctan (u/c)
+  have hcomp : HasDerivAt (Real.arctan ∘ fun t : ℝ => t/c) (1/(1+((u/c))^2) * (1/c)) u :=
+    houter.comp u hinner
+  simp only [Function.comp_def] at hcomp
+  have hval : (1/(1+((u/c))^2) * (1/c)) = c/(c^2+u^2) := by
+    field_simp
+  simpa only [hval] using hcomp
+
+/-- `u/(c^2+u^2)` is the derivative of `u ↦ ½ log (c^2+u^2)`. -/
+theorem hasDerivAt_half_log {c : ℝ} (hc : c ≠ 0) (u : ℝ) :
+    HasDerivAt (fun t : ℝ => (1/2)*Real.log (c^2+t^2)) (u/(c^2+u^2)) u := by
+  have hpos : (0:ℝ) < c^2+u^2 := by positivity
+  have hinner : HasDerivAt (fun t : ℝ => c^2+t^2) (2*u) u := by
+    simpa using (hasDerivAt_pow 2 u).const_add (c^2)
+  have houter : HasDerivAt Real.log ((c^2+u^2)⁻¹) (c^2+u^2) := Real.hasDerivAt_log hpos.ne'
+  have hcomp : HasDerivAt (Real.log ∘ fun t : ℝ => c^2+t^2) ((c^2+u^2)⁻¹ * (2*u)) u :=
+    houter.comp u hinner
+  simp only [Function.comp_def] at hcomp
+  have hval : ((c^2+u^2)⁻¹ * (2*u)) = 2*(u/(c^2+u^2)) := by field_simp
+  rw [hval] at hcomp
+  have := hcomp.const_mul (1/2)
+  convert this using 1
+  ring
+
+/-- The real integral of `c/(c^2+u^2)`. -/
+theorem integral_arctan_div {c : ℝ} (hc : c ≠ 0) {u₁ u₂ : ℝ} :
+    ∫ u in u₁..u₂, (c/(c^2+u^2))
+      = Real.arctan (u₂/c) - Real.arctan (u₁/c) := by
+  apply intervalIntegral.integral_eq_sub_of_hasDerivAt
+  · intro u _
+    exact hasDerivAt_arctan_div hc u
+  · have hne : ∀ x : ℝ, c^2 + x^2 ≠ 0 := fun x => by positivity
+    exact (continuous_const.div (by fun_prop) hne).intervalIntegrable _ _
+
+/-- The real integral of `u/(c^2+u^2)`. -/
+theorem integral_half_log {c : ℝ} (hc : c ≠ 0) {u₁ u₂ : ℝ} :
+    ∫ u in u₁..u₂, (u/(c^2+u^2))
+      = (1/2)*Real.log (c^2+u₂^2) - (1/2)*Real.log (c^2+u₁^2) := by
+  apply intervalIntegral.integral_eq_sub_of_hasDerivAt
+  · intro u _
+    exact hasDerivAt_half_log hc u
+  · have hne : ∀ x : ℝ, c^2 + x^2 ≠ 0 := fun x => by positivity
+    exact (continuous_id.div (by fun_prop) hne).intervalIntegrable _ _
+
+end BMORProp21
+
+-- ==== BMORVerticalClosed.lean ====
+
+
+/-!
+# Closed form of the vertical side of the Perron rectangle
+
+Combining the algebraic split `(c + i u)⁻¹ = c/(c²+u²) - i·u/(c²+u²)` with the two real
+antiderivatives gives the closed form
+
+`∫_{u₁}^{u₂} (c + i u)⁻¹ du = [arctan (u/c) - (i/2) log (c²+u²)]_{u₁}^{u₂}`,
+
+valid for either sign of `c` and with no branch bookkeeping.
+-/
+
+namespace BMORProp21
+
+open Complex
+
+/-- The vertical side integral in closed form. -/
+theorem integral_inv_vertical {c : ℝ} (hc : c ≠ 0) {u₁ u₂ : ℝ} :
+    ∫ u in u₁..u₂, (((c:ℂ) + (u:ℂ)*I)⁻¹)
+      = ((Real.arctan (u₂/c) : ℂ) - (I/2)*((Real.log (c^2+u₂^2) : ℝ) : ℂ))
+        - ((Real.arctan (u₁/c) : ℂ) - (I/2)*((Real.log (c^2+u₁^2) : ℝ) : ℂ)) := by
+  have hpt : ∀ u : ℝ, (((c:ℂ) + (u:ℂ)*I)⁻¹)
+      = ((c/(c^2+u^2) : ℝ) : ℂ) - I * ((u/(c^2+u^2) : ℝ) : ℂ) :=
+    fun u => vertical_kernel_split hc
+  have hden : Continuous fun u : ℝ => c^2 + u^2 := continuous_const.add (continuous_id.pow 2)
+  have hpos : ∀ x : ℝ, c^2 + x^2 ≠ 0 := fun x => by positivity
+  have h1 : Continuous fun u : ℝ => ((c/(c^2+u^2) : ℝ) : ℂ) :=
+    Complex.continuous_ofReal.comp (continuous_const.div hden hpos)
+  have h2 : Continuous fun u : ℝ => (I:ℂ) * ((u/(c^2+u^2) : ℝ) : ℂ) :=
+    continuous_const.mul (Complex.continuous_ofReal.comp (continuous_id.div hden hpos))
+  simp only [hpt]
+  rw [intervalIntegral.integral_sub (h1.intervalIntegrable u₁ u₂) (h2.intervalIntegrable u₁ u₂)]
+  rw [intervalIntegral.integral_const_mul]
+  simp only [intervalIntegral.integral_ofReal]
+  rw [integral_arctan_div hc, integral_half_log hc]
+  push_cast
+  ring
+
+end BMORProp21
+
+-- ==== BMORTranslate.lean ====
+
+
+/-!
+# Translating the Perron rectangle to the origin
+
+The four side computations are all statements about `s - a`. Translating the rectangle by `a`
+reduces every one of them to the case `a = 0`, which removes the dependence on `a` from the
+branch bookkeeping. This file records the two translation identities.
+-/
+
+namespace BMORProp21
+
+open Complex
+
+/-- Horizontal side: translating the rectangle by `a`. -/
+theorem horizontal_translate {a : ℂ} {x₁ x₂ y : ℝ} :
+    ∫ x in x₁..x₂, (((x:ℂ) + (y:ℂ)*I - a)⁻¹)
+      = ∫ u in (x₁ - a.re)..(x₂ - a.re),
+          (((u:ℂ) + ((y - a.im):ℝ)*I)⁻¹) := by
+  have key := intervalIntegral.integral_comp_add_right (a := x₁) (b := x₂) (d := -a.re)
+    (f := fun u : ℝ => (((u:ℂ) + ((y - a.im):ℝ)*I)⁻¹))
+  have hshift : ∀ x : ℝ, (((x + (-a.re):ℝ):ℂ) + ((y + (-a.im):ℝ):ℂ)*I)
+      = ((x:ℂ) + (y:ℂ)*I - a) := by
+    intro x
+    apply Complex.ext <;> simp <;> ring
+  simpa only [hshift, sub_eq_add_neg] using key
+
+/-- Vertical side: translating the rectangle by `a`. -/
+theorem vertical_translate {a : ℂ} {y₁ y₂ x : ℝ} :
+    ∫ y in y₁..y₂, (((x:ℂ) + (y:ℂ)*I - a)⁻¹)
+      = ∫ v in (y₁ - a.im)..(y₂ - a.im),
+          ((((x - a.re):ℝ):ℂ) + (v:ℂ)*I)⁻¹ := by
+  have key := intervalIntegral.integral_comp_add_right (a := y₁) (b := y₂) (d := -a.im)
+    (f := fun v : ℝ => ((((x - a.re):ℝ):ℂ) + (v:ℂ)*I)⁻¹)
+  have hshift : ∀ y : ℝ, (((x + (-a.re):ℝ):ℂ) + ((y + (-a.im):ℝ):ℂ)*I)
+      = ((x:ℂ) + (y:ℂ)*I - a) := by
+    intro y
+    apply Complex.ext <;> simp <;> ring
+  simpa only [hshift, sub_eq_add_neg] using key
+
+end BMORProp21
+
+-- ==== BMORArg.lean ====
+
+
+/-!
+# The argument of a point in a quadrant
+
+For the residue computation on the Perron rectangle one needs `Complex.arg` of the four corners
+after translating to the origin. Each corner has `re ≠ 0` and `im ≠ 0`, so it lies in the interior
+of a quadrant. This file proves the three non-right-quadrant cases:
+
+* `u > 0`          : `arg (u + v·i) = arctan (v/u)`;
+* `u < 0`, `v > 0` : `arg (u + v·i) = arctan (v/u) + π`;
+* `u < 0`, `v < 0` : `arg (u + v·i) = arctan (v/u) - π`.
+-/
+
+namespace BMORProp21
+
+open Complex
+
+/-- Packaging step: if `cos θ = u/r` and `sin θ = v/r` then `u + v·i = r·(cos θ + sin θ·i)`. -/
+theorem repr_of {u v r θ : ℝ} (hr : 0 < r)
+    (hcos : Real.cos θ = u/r) (hsin : Real.sin θ = v/r) :
+    ((u:ℂ) + (v:ℂ)*I) = (r:ℂ) * (Real.cos θ + Real.sin θ * I) := by
+  have hrne : r ≠ 0 := hr.ne'
+  apply Complex.ext
+  · simp only [Complex.add_re, Complex.ofReal_re, Complex.mul_re, Complex.ofReal_im,
+      Complex.I_re, Complex.I_im, mul_one, mul_zero, sub_zero, add_zero, hcos]
+    field_simp
+    ring
+  · simp only [Complex.add_im, Complex.ofReal_im, Complex.mul_im, Complex.ofReal_re,
+      Complex.I_re, Complex.I_im, mul_one, mul_zero, add_zero, hsin]
+    field_simp
+    ring
+
+/-- The elementary identity `1 + (v/u)² = (u²+v²)/u²`, proved by avoiding inverses. -/
+theorem one_add_sq_div {u v : ℝ} (hu : u ≠ 0) :
+    (1 + (v/u)^2) = (u^2+v^2)/u^2 := by
+  rw [div_pow, show (1:ℝ) = u^2/u^2 from by field_simp, ← add_div]
+
+/-- Right half-plane: the modulus form. -/
+theorem repr_pos {u v : ℝ} (hu : 0 < u) :
+    ((u:ℂ) + (v:ℂ)*I) = ((Real.sqrt (u^2+v^2):ℝ):ℂ) *
+      (Real.cos (Real.arctan (v/u)) + Real.sin (Real.arctan (v/u)) * I) := by
+  have hr : (0:ℝ) < Real.sqrt (u^2+v^2) := Real.sqrt_pos.mpr (by positivity)
+  have h1 := one_add_sq_div (v := v) hu.ne'
+  refine repr_of hr ?_ ?_
+  · rw [Real.cos_arctan, h1, Real.sqrt_div' _ (by positivity), Real.sqrt_sq (le_of_lt hu),
+      one_div, inv_div]
+  · rw [Real.sin_arctan, h1, Real.sqrt_div' _ (by positivity), Real.sqrt_sq (le_of_lt hu)]
+    field_simp
+
+/-- The principal argument in the right half-plane. -/
+theorem arg_pos {u v : ℝ} (hu : 0 < u) :
+    Complex.arg ((u:ℂ) + (v:ℂ)*I) = Real.arctan (v/u) := by
+  have hr : (0:ℝ) < Real.sqrt (u^2+v^2) := Real.sqrt_pos.mpr (by positivity)
+  have hlo : -(Real.pi) < Real.arctan (v/u) := by
+    have := Real.neg_pi_div_two_lt_arctan (v/u); linarith [Real.pi_pos]
+  have hhi : Real.arctan (v/u) ≤ Real.pi := by
+    have := Real.arctan_lt_pi_div_two (v/u); linarith [Real.pi_pos]
+  have h := Complex.arg_mul_cos_add_sin_mul_I (r := Real.sqrt (u^2+v^2))
+    (θ := Real.arctan (v/u)) hr ⟨hlo, hhi⟩
+  rw [← Complex.ofReal_cos, ← Complex.ofReal_sin] at h
+  rwa [← repr_pos hu] at h
+
+/-- Left half-plane: cosine and sine of the unshifted arctangent. -/
+theorem cos_sin_of_neg {u v : ℝ} (hu : u < 0) :
+    Real.cos (Real.arctan (v/u)) = (-u) / Real.sqrt (u^2+v^2) ∧
+      Real.sin (Real.arctan (v/u)) = (-v) / Real.sqrt (u^2+v^2) := by
+  have hu0 : u ≠ 0 := hu.ne
+  have h1 := one_add_sq_div (v := v) hu0
+  have hsq : Real.sqrt (u^2) = -u := by
+    rw [Real.sqrt_sq_eq_abs, abs_of_neg hu]
+  have hsqpos : (0:ℝ) < Real.sqrt (u^2+v^2) :=
+    Real.sqrt_pos.mpr (by nlinarith [sq_nonneg v, (show (0:ℝ) < u^2 by nlinarith [hu])])
+  constructor
+  · rw [Real.cos_arctan, h1, Real.sqrt_div' _ (by positivity), hsq, one_div, inv_div]
+  · rw [Real.sin_arctan, h1, Real.sqrt_div' _ (by positivity), hsq]
+    field_simp
+
+/-- Upper-left quadrant. -/
+theorem repr_neg_pos {u v : ℝ} (hu : u < 0) (hv : 0 < v) :
+    ((u:ℂ) + (v:ℂ)*I) = ((Real.sqrt (u^2+v^2):ℝ):ℂ) *
+      (Real.cos (Real.arctan (v/u) + Real.pi) + Real.sin (Real.arctan (v/u) + Real.pi) * I) := by
+  obtain ⟨hc, hs⟩ := cos_sin_of_neg (v := v) hu
+  have hr : (0:ℝ) < Real.sqrt (u^2+v^2) :=
+    Real.sqrt_pos.mpr (by nlinarith [sq_nonneg v, (show (0:ℝ) < u^2 by nlinarith [hu])])
+  refine repr_of hr ?_ ?_
+  · rw [Real.cos_add_pi, hc]; ring
+  · rw [Real.sin_add_pi, hs]; ring
+
+/-- Lower-left quadrant. -/
+theorem repr_neg_neg {u v : ℝ} (hu : u < 0) (hv : v < 0) :
+    ((u:ℂ) + (v:ℂ)*I) = ((Real.sqrt (u^2+v^2):ℝ):ℂ) *
+      (Real.cos (Real.arctan (v/u) - Real.pi) + Real.sin (Real.arctan (v/u) - Real.pi) * I) := by
+  obtain ⟨hc, hs⟩ := cos_sin_of_neg (v := v) hu
+  have hr : (0:ℝ) < Real.sqrt (u^2+v^2) :=
+    Real.sqrt_pos.mpr (by nlinarith [sq_nonneg v, (show (0:ℝ) < u^2 by nlinarith [hu])])
+  refine repr_of hr ?_ ?_
+  · rw [Real.cos_sub_pi, hc]; ring
+  · rw [Real.sin_sub_pi, hs]; ring
+
+/-- The principal argument in the upper-left quadrant. -/
+theorem arg_neg_pos {u v : ℝ} (hu : u < 0) (hv : 0 < v) :
+    Complex.arg ((u:ℂ) + (v:ℂ)*I) = Real.arctan (v/u) + Real.pi := by
+  have hr : (0:ℝ) < Real.sqrt (u^2+v^2) :=
+    Real.sqrt_pos.mpr (by nlinarith [sq_nonneg v, (show (0:ℝ) < u^2 by nlinarith [hu])])
+  have hneg : v/u < 0 := div_neg_of_pos_of_neg hv hu
+  have harc : Real.arctan (v/u) < 0 := by
+    have h := Real.arctan_lt_arctan_iff.mpr hneg
+    simpa using h
+  have hlo : -(Real.pi) < Real.arctan (v/u) + Real.pi := by
+    have := Real.neg_pi_div_two_lt_arctan (v/u); linarith [Real.pi_pos]
+  have hhi : Real.arctan (v/u) + Real.pi ≤ Real.pi := by linarith
+  have h := Complex.arg_mul_cos_add_sin_mul_I (r := Real.sqrt (u^2+v^2))
+    (θ := Real.arctan (v/u) + Real.pi) hr ⟨hlo, hhi⟩
+  rw [← Complex.ofReal_cos, ← Complex.ofReal_sin] at h
+  rwa [← repr_neg_pos hu hv] at h
+
+/-- The principal argument in the lower-left quadrant. -/
+theorem arg_neg_neg {u v : ℝ} (hu : u < 0) (hv : v < 0) :
+    Complex.arg ((u:ℂ) + (v:ℂ)*I) = Real.arctan (v/u) - Real.pi := by
+  have hr : (0:ℝ) < Real.sqrt (u^2+v^2) :=
+    Real.sqrt_pos.mpr (by nlinarith [sq_nonneg v, (show (0:ℝ) < u^2 by nlinarith [hu])])
+  have hpos : 0 < v/u := div_pos_of_neg_of_neg hv hu
+  have harc : 0 < Real.arctan (v/u) := by
+    have h := Real.arctan_lt_arctan_iff.mpr hpos
+    simpa using h
+  have hlo : -(Real.pi) < Real.arctan (v/u) - Real.pi := by
+    have := Real.arctan_lt_pi_div_two (v/u); linarith [Real.pi_pos]
+  have hhi : Real.arctan (v/u) - Real.pi ≤ Real.pi := by
+    have := Real.arctan_lt_pi_div_two (v/u); linarith [Real.pi_pos]
+  have h := Complex.arg_mul_cos_add_sin_mul_I (r := Real.sqrt (u^2+v^2))
+    (θ := Real.arctan (v/u) - Real.pi) hr ⟨hlo, hhi⟩
+  rw [← Complex.ofReal_cos, ← Complex.ofReal_sin] at h
+  rwa [← repr_neg_neg hu hv] at h
+
+end BMORProp21
+
+-- ==== BMORBoundary.lean ====
+
+
+/-!
+# The Perron rectangle integral equals `2πi` — real part
+-/
+
+namespace BMORProp21
+
+open Complex
+
+/-- The real part of `log (U + V·i)` in terms of `log (U² + V²)`. -/
+theorem log_re_of_real_add {U V : ℝ} :
+    (Complex.log ((U:ℂ) + (V:ℂ)*I)).re = (1/2) * Real.log (U^2 + V^2) := by
+  rw [Complex.log_re, Complex.norm_def, Complex.normSq_add_mul_I]
+  rw [Real.log_sqrt (show (0:ℝ) ≤ U^2 + V^2 by positivity)]
+  ring
+
+/-- The constant `(i/2).im` is `1/2`. -/
+theorem im_I_half : ((I * (1/2) : ℂ)).im = (1/2 : ℝ) := by
+  norm_num [Complex.mul_im]
+
+/-- Horizontal side of the rectangle. -/
+noncomputable def sideH (U₁ U₂ V : ℝ) : ℂ :=
+  ∫ x in U₁..U₂, ((x:ℂ) + (V:ℂ)*I)⁻¹
+
+/-- Vertical side of the rectangle. -/
+noncomputable def sideV (U V₁ V₂ : ℝ) : ℂ :=
+  ∫ y in V₁..V₂, ((U:ℂ) + (y:ℂ)*I)⁻¹
+
+end BMORProp21
+
+-- ==== BMORSideVParts.lean ====
+
+
+/-!
+# Real and imaginary parts of the vertical side
+
+The closed form `∫ (c + i u)⁻¹ du = [arctan (u/c) - (i/2) log (c²+u²)]` is split into its real
+and imaginary parts once and for all, so that later assemblies only see real numbers and the
+fiddly `(i/2)` coefficient never enters the goal.
+-/
+
+namespace BMORProp21
+
+open Complex
+
+/-- Real part of the vertical side. -/
+theorem sideV_re {c u₁ u₂ : ℝ} (hc : c ≠ 0) :
+    (∫ u in u₁..u₂, ((c:ℂ) + (u:ℂ)*I)⁻¹).re
+      = Real.arctan (u₂/c) - Real.arctan (u₁/c) := by
+  have h2 : ((2:ℂ)).im = 0 := by norm_num
+  rw [integral_inv_vertical (c := c) hc]
+  simp only [h2, Complex.sub_re, Complex.add_re, Complex.mul_re, Complex.mul_im, Complex.ofReal_re,
+    Complex.ofReal_im, Complex.neg_re, Complex.neg_im, Complex.div_re, Complex.div_im,
+    Complex.I_re, Complex.I_im, Complex.ofReal_ofNat, zero_mul, mul_zero, one_mul, mul_one,
+    sub_zero, zero_sub, add_zero, neg_zero, Complex.ofReal_sub]
+  ring
+
+/-- Imaginary part of the vertical side. -/
+theorem sideV_im {c u₁ u₂ : ℝ} (hc : c ≠ 0) :
+    (∫ u in u₁..u₂, ((c:ℂ) + (u:ℂ)*I)⁻¹).im
+      = (1/2) * (Real.log (c^2+u₁^2) - Real.log (c^2+u₂^2)) := by
+  rw [integral_inv_vertical (c := c) hc]
+  simp only [Complex.sub_re, Complex.add_re, Complex.sub_im, Complex.add_im, Complex.mul_re,
+    Complex.mul_im, Complex.ofReal_re, Complex.ofReal_im, Complex.neg_re, Complex.neg_im,
+    Complex.div_re, Complex.div_im, Complex.I_re, Complex.I_im, Complex.ofReal_ofNat,
+    zero_mul, mul_zero, one_mul, mul_one, sub_zero, zero_sub, add_zero, neg_zero,
+    Complex.ofReal_sub]
+  norm_num
+  ring
+
+end BMORProp21
+
+-- ==== BMORSideParts.lean ====
+
+
+/-!
+# Real part of the Perron rectangle boundary
+
+With both sides split into real and imaginary parts, the vanishing of the real part of the
+boundary integral is a bookkeeping identity on logarithms.
+-/
+
+namespace BMORProp21
+
+open Complex
+
+/-- Real part of the horizontal side. -/
+theorem sideH_re {U₁ U₂ V : ℝ} (hV : V ≠ 0) :
+    (∫ x in U₁..U₂, ((x:ℂ) + (V:ℂ)*I)⁻¹).re
+      = (1/2) * (Real.log (U₂^2+V^2) - Real.log (U₁^2+V^2)) := by
+  have h := integral_inv_sub_horiz (a := 0) (x₁ := U₁) (x₂ := U₂) (y := V) (by simpa using hV)
+  rw [show (∫ x in U₁..U₂, ((x:ℂ) + (V:ℂ)*I)⁻¹)
+      = Complex.log ((U₂:ℂ) + (V:ℂ)*I) - Complex.log ((U₁:ℂ) + (V:ℂ)*I) from by
+    simpa only [sub_zero] using h]
+  simp only [Complex.sub_re]
+  rw [log_re_of_real_add (U := U₂) (V := V), log_re_of_real_add (U := U₁) (V := V)]
+  ring
+
+/-- The real part of the boundary integral vanishes. -/
+theorem boundary_re_zero {U₁ U₂ V₁ V₂ : ℝ} (h1 : U₁ < 0) (h2 : 0 < U₂)
+    (h3 : V₁ < 0) (h4 : 0 < V₂) :
+    ((∫ x in U₁..U₂, ((x:ℂ) + (V₁:ℂ)*I)⁻¹) - (∫ x in U₁..U₂, ((x:ℂ) + (V₂:ℂ)*I)⁻¹)
+      + I*(∫ y in V₁..V₂, ((U₂:ℂ) + (y:ℂ)*I)⁻¹)
+      - I*(∫ y in V₁..V₂, ((U₁:ℂ) + (y:ℂ)*I)⁻¹)).re = 0 := by
+  have hv1 : (V₁:ℝ) ≠ 0 := ne_of_lt h3
+  have hv2 : (V₂:ℝ) ≠ 0 := ne_of_gt h4
+  have hu1 : (U₁:ℝ) ≠ 0 := ne_of_lt h1
+  have hu2 : (U₂:ℝ) ≠ 0 := ne_of_gt h2
+  simp only [Complex.sub_re, Complex.add_re, Complex.mul_re, Complex.I_re, Complex.I_im,
+    Complex.neg_re, zero_mul, one_mul, mul_zero, sub_zero, zero_sub, add_zero]
+  rw [sideH_re (U₁ := U₁) (U₂ := U₂) (V := V₁) hv1,
+      sideH_re (U₁ := U₁) (U₂ := U₂) (V := V₂) hv2,
+      sideV_im (c := U₂) (u₁ := V₁) (u₂ := V₂) hu2,
+      sideV_im (c := U₁) (u₁ := V₁) (u₂ := V₂) hu1]
+  ring
+
+end BMORProp21
+
+-- ==== BMORSideIm.lean ====
+
+
+/-!
+# Imaginary part of the Perron rectangle boundary equals `2π`
+
+With both sides split and the three quadrant formulas for `Complex.arg` available, the imaginary
+part of the boundary integral is a bookkeeping identity on arctangents plus the two `±π` branch
+shifts, and equals `2π`.
+-/
+
+namespace BMORProp21
+
+open Complex
+
+/-- Imaginary part of the horizontal side. -/
+theorem sideH_im {U₁ U₂ V : ℝ} (hV : V ≠ 0) :
+    (∫ x in U₁..U₂, ((x:ℂ) + (V:ℂ)*I)⁻¹).im
+      = Complex.arg ((U₂:ℂ) + (V:ℂ)*I) - Complex.arg ((U₁:ℂ) + (V:ℂ)*I) := by
+  have h := integral_inv_sub_horiz (a := 0) (x₁ := U₁) (x₂ := U₂) (y := V) (by simpa using hV)
+  rw [show (∫ x in U₁..U₂, ((x:ℂ) + (V:ℂ)*I)⁻¹)
+      = Complex.log ((U₂:ℂ) + (V:ℂ)*I) - Complex.log ((U₁:ℂ) + (V:ℂ)*I) from by
+    simpa only [sub_zero] using h]
+  simp only [Complex.sub_im, Complex.log_im]
+
+/-- The imaginary part of the boundary integral is `2π`. -/
+theorem boundary_im_eq {U₁ U₂ V₁ V₂ : ℝ} (h1 : U₁ < 0) (h2 : 0 < U₂)
+    (h3 : V₁ < 0) (h4 : 0 < V₂) :
+    ((∫ x in U₁..U₂, ((x:ℂ) + (V₁:ℂ)*I)⁻¹) - (∫ x in U₁..U₂, ((x:ℂ) + (V₂:ℂ)*I)⁻¹)
+      + I*(∫ y in V₁..V₂, ((U₂:ℂ) + (y:ℂ)*I)⁻¹)
+      - I*(∫ y in V₁..V₂, ((U₁:ℂ) + (y:ℂ)*I)⁻¹)).im = 2 * Real.pi := by
+  have hv1 : (V₁:ℝ) ≠ 0 := ne_of_lt h3
+  have hv2 : (V₂:ℝ) ≠ 0 := ne_of_gt h4
+  have hu1 : (U₁:ℝ) ≠ 0 := ne_of_lt h1
+  have hu2 : (U₂:ℝ) ≠ 0 := ne_of_gt h2
+  simp only [Complex.sub_im, Complex.add_im, Complex.mul_im, Complex.mul_re, Complex.I_re,
+    Complex.I_im, Complex.ofReal_re, Complex.ofReal_im, zero_mul, one_mul, mul_zero, mul_one,
+    sub_zero, zero_sub, add_zero]
+  rw [sideH_im (U₁ := U₁) (U₂ := U₂) (V := V₁) hv1,
+      sideH_im (U₁ := U₁) (U₂ := U₂) (V := V₂) hv2,
+      sideV_re (c := U₂) (u₁ := V₁) (u₂ := V₂) hu2,
+      sideV_re (c := U₁) (u₁ := V₁) (u₂ := V₂) hu1]
+  rw [arg_pos (u := U₂) (v := V₁) h2, arg_pos (u := U₂) (v := V₂) h2,
+      arg_neg_neg (u := U₁) (v := V₁) h1 h3, arg_neg_pos (u := U₁) (v := V₂) h1 h4]
+  ring
+
+
+/-- The boundary integral of `1/(s - 0)` around the rectangle equals `2πi`. -/
+theorem rectangle_residue {U₁ U₂ V₁ V₂ : ℝ} (h1 : U₁ < 0) (h2 : 0 < U₂)
+    (h3 : V₁ < 0) (h4 : 0 < V₂) :
+    (∫ x in U₁..U₂, ((x:ℂ) + (V₁:ℂ)*I)⁻¹) - (∫ x in U₁..U₂, ((x:ℂ) + (V₂:ℂ)*I)⁻¹)
+      + I*(∫ y in V₁..V₂, ((U₂:ℂ) + (y:ℂ)*I)⁻¹)
+      - I*(∫ y in V₁..V₂, ((U₁:ℂ) + (y:ℂ)*I)⁻¹) = 2 * (Real.pi : ℂ) * I := by
+  apply Complex.ext
+  · rw [boundary_re_zero h1 h2 h3 h4]
+    simp [Complex.mul_re, Complex.mul_im, Complex.ofReal_re, Complex.ofReal_im, Complex.I_re,
+      Complex.I_im]
+  · rw [boundary_im_eq h1 h2 h3 h4]
+    simp [Complex.mul_re, Complex.mul_im, Complex.ofReal_re, Complex.ofReal_im, Complex.I_re,
+      Complex.I_im]
+end BMORProp21
+
+-- ==== BMORResidueAt.lean ====
+
+
+/-!
+# The rectangle residue at an arbitrary pole, and the vanishing of entire boundary integrals
+
+Two building blocks for the cross-zero identity:
+
+* `rectangle_residue_at`: `∫_{∂R} (s - a)⁻¹ ds = 2πi` for `a` strictly inside the rectangle
+  (translation of `rectangle_residue`);
+* `boundary_entire_zero`: `∫_{∂R} g = 0` for entire `g` (Mathlib's Cauchy–Goursat for rectangles).
+-/
+
+namespace BMORProp21
+
+open Complex
+
+/-- The boundary integral of `(s - a)⁻¹` is `2πi` when `a` is strictly inside the rectangle. -/
+theorem rectangle_residue_at {a : ℂ} {x₁ x₂ y₁ y₂ : ℝ}
+    (hx1 : x₁ < a.re) (hx2 : a.re < x₂) (hy1 : y₁ < a.im) (hy2 : a.im < y₂) :
+    (∫ x in x₁..x₂, (((x:ℂ) + (y₁:ℂ)*I) - a)⁻¹)
+      - (∫ x in x₁..x₂, (((x:ℂ) + (y₂:ℂ)*I) - a)⁻¹)
+      + I*(∫ y in y₁..y₂, (((x₂:ℂ) + (y:ℂ)*I) - a)⁻¹)
+      - I*(∫ y in y₁..y₂, (((x₁:ℂ) + (y:ℂ)*I) - a)⁻¹) = 2 * (Real.pi : ℂ) * I := by
+  rw [horizontal_translate (a := a) (x₁ := x₁) (x₂ := x₂) (y := y₁),
+      horizontal_translate (a := a) (x₁ := x₁) (x₂ := x₂) (y := y₂),
+      vertical_translate (a := a) (y₁ := y₁) (y₂ := y₂) (x := x₂),
+      vertical_translate (a := a) (y₁ := y₁) (y₂ := y₂) (x := x₁)]
+  exact rectangle_residue (by linarith) (by linarith) (by linarith) (by linarith)
+
+/-- The boundary integral of an entire function vanishes. -/
+theorem boundary_entire_zero {g : ℂ → ℂ} (hg : Differentiable ℂ g) {x₁ x₂ y₁ y₂ : ℝ} :
+    (∫ x in x₁..x₂, g ((x:ℂ) + (y₁:ℂ)*I)) - (∫ x in x₁..x₂, g ((x:ℂ) + (y₂:ℂ)*I))
+      + I*(∫ y in y₁..y₂, g ((x₂:ℂ) + (y:ℂ)*I))
+      - I*(∫ y in y₁..y₂, g ((x₁:ℂ) + (y:ℂ)*I)) = 0 := by
+  have h := Complex.integral_boundary_rect_eq_zero_of_differentiableOn g ⟨x₁, y₁⟩ ⟨x₂, y₂⟩
+    (fun z _ => (hg.differentiableAt).differentiableWithinAt)
+  simpa using h
+
+end BMORProp21
+
+-- ==== BMORWeighted.lean ====
+
+
+/-!
+# Weighted residue on a rectangle — algebraic core
+
+`∫_{∂R} g(s)/(s-a) ds = 2πi·g(a)` for an entire `g` and a pole `a` strictly inside the rectangle.
+The proof avoids constructing the removable singularity by hand: Mathlib's `dslope g a` is already
+entire, and `g(s)/(s-a) = dslope g a s + g(a)/(s-a)`.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set
+open scoped Topology
+
+/-- `dslope g a z = (g z - g a)/(z - a)` away from `a`. -/
+theorem dslope_eq {g : ℂ → ℂ} {a z : ℂ} (hz : z ≠ a) :
+    dslope g a z = (z - a)⁻¹ * (g z - g a) := by
+  rw [dslope_of_ne g hz, slope_def_field]
+  ring
+
+/-- `dslope g a` is entire when `g` is. -/
+theorem differentiable_dslope {g : ℂ → ℂ} (hg : Differentiable ℂ g) (a : ℂ) :
+    Differentiable ℂ (dslope g a) := by
+  have h : DifferentiableOn ℂ (dslope g a) univ :=
+    (Complex.differentiableOn_dslope (f := g) (c := a) (s := univ) (by simp)).mpr
+      (fun z _ => (hg.differentiableAt).differentiableWithinAt)
+  exact differentiableOn_univ.mp h
+
+/-- Pointwise splitting of `g(s)/(s-a)` into an entire part and a simple pole. -/
+theorem div_sub_split {g : ℂ → ℂ} {a z : ℂ} (hz : z ≠ a) :
+    g z * (z - a)⁻¹ = dslope g a z + g a * (z - a)⁻¹ := by
+  rw [dslope_eq hz]
+  field_simp
+  ring
+
+end BMORProp21
+
+-- ==== BMORWeightedResidue.lean ====
+
+
+/-!
+# Weighted residue on a rectangle
+
+`∫_{∂R} g(s)/(s-a) ds = 2πi·g(a)` for an entire `g` and a pole `a` strictly inside the rectangle.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology
+
+/-- Continuity of a horizontal parametrisation. -/
+theorem cont_h (y : ℝ) : Continuous fun x : ℝ => ((x:ℂ) + (y:ℂ)*I) :=
+  Complex.continuous_ofReal.add continuous_const
+
+/-- Continuity of a vertical parametrisation. -/
+theorem cont_v (x : ℝ) : Continuous fun y : ℝ => ((x:ℂ) + (y:ℂ)*I) :=
+  continuous_const.add (Complex.continuous_ofReal.mul continuous_const)
+
+/-- The weighted residue on a rectangle. -/
+theorem boundary_weighted_residue {g : ℂ → ℂ} (hg : Differentiable ℂ g) {a : ℂ}
+    {x₁ x₂ y₁ y₂ : ℝ} (hx1 : x₁ < a.re) (hx2 : a.re < x₂)
+    (hy1 : y₁ < a.im) (hy2 : a.im < y₂) :
+    (∫ x in x₁..x₂, g ((x:ℂ) + (y₁:ℂ)*I) * (((x:ℂ) + (y₁:ℂ)*I) - a)⁻¹)
+      - (∫ x in x₁..x₂, g ((x:ℂ) + (y₂:ℂ)*I) * (((x:ℂ) + (y₂:ℂ)*I) - a)⁻¹)
+      + I*(∫ y in y₁..y₂, g ((x₂:ℂ) + (y:ℂ)*I) * (((x₂:ℂ) + (y:ℂ)*I) - a)⁻¹)
+      - I*(∫ y in y₁..y₂, g ((x₁:ℂ) + (y:ℂ)*I) * (((x₁:ℂ) + (y:ℂ)*I) - a)⁻¹)
+    = 2 * (Real.pi : ℂ) * I * g a := by
+  have hds : Differentiable ℂ (dslope g a) := differentiable_dslope hg a
+  have hneH1 : ∀ x : ℝ, ((x:ℂ) + (y₁:ℂ)*I) ≠ a := by
+    intro x h
+    have := congrArg Complex.im h
+    simp at this
+    linarith
+  have hneH2 : ∀ x : ℝ, ((x:ℂ) + (y₂:ℂ)*I) ≠ a := by
+    intro x h
+    have := congrArg Complex.im h
+    simp at this
+    linarith
+  have hneV2 : ∀ y : ℝ, ((x₂:ℂ) + (y:ℂ)*I) ≠ a := by
+    intro y h
+    have := congrArg Complex.re h
+    simp at this
+    linarith
+  have hneV1 : ∀ y : ℝ, ((x₁:ℂ) + (y:ℂ)*I) ≠ a := by
+    intro y h
+    have := congrArg Complex.re h
+    simp at this
+    linarith
+  -- integrability of the four entire parts
+  have iD1 : IntervalIntegrable (fun x : ℝ => dslope g a ((x:ℂ) + (y₁:ℂ)*I)) volume x₁ x₂ :=
+    (hds.continuous.comp (cont_h y₁)).intervalIntegrable _ _
+  have iD2 : IntervalIntegrable (fun x : ℝ => dslope g a ((x:ℂ) + (y₂:ℂ)*I)) volume x₁ x₂ :=
+    (hds.continuous.comp (cont_h y₂)).intervalIntegrable _ _
+  have iD3 : IntervalIntegrable (fun y : ℝ => dslope g a ((x₂:ℂ) + (y:ℂ)*I)) volume y₁ y₂ :=
+    (hds.continuous.comp (cont_v x₂)).intervalIntegrable _ _
+  have iD4 : IntervalIntegrable (fun y : ℝ => dslope g a ((x₁:ℂ) + (y:ℂ)*I)) volume y₁ y₂ :=
+    (hds.continuous.comp (cont_v x₁)).intervalIntegrable _ _
+  -- integrability of the four pole parts
+  have iV1 : IntervalIntegrable (fun x : ℝ => g a * (((x:ℂ) + (y₁:ℂ)*I) - a)⁻¹) volume x₁ x₂ := by
+    apply ContinuousOn.intervalIntegrable
+    exact ContinuousOn.mul continuousOn_const
+      (ContinuousOn.inv₀ ((cont_h y₁).continuousOn.sub continuousOn_const)
+        (fun x _ => sub_ne_zero.mpr (hneH1 x)))
+  have iV2 : IntervalIntegrable (fun x : ℝ => g a * (((x:ℂ) + (y₂:ℂ)*I) - a)⁻¹) volume x₁ x₂ := by
+    apply ContinuousOn.intervalIntegrable
+    exact ContinuousOn.mul continuousOn_const
+      (ContinuousOn.inv₀ ((cont_h y₂).continuousOn.sub continuousOn_const)
+        (fun x _ => sub_ne_zero.mpr (hneH2 x)))
+  have iV3 : IntervalIntegrable (fun y : ℝ => g a * (((x₂:ℂ) + (y:ℂ)*I) - a)⁻¹) volume y₁ y₂ := by
+    apply ContinuousOn.intervalIntegrable
+    exact ContinuousOn.mul continuousOn_const
+      (ContinuousOn.inv₀ ((cont_v x₂).continuousOn.sub continuousOn_const)
+        (fun y _ => sub_ne_zero.mpr (hneV2 y)))
+  have iV4 : IntervalIntegrable (fun y : ℝ => g a * (((x₁:ℂ) + (y:ℂ)*I) - a)⁻¹) volume y₁ y₂ := by
+    apply ContinuousOn.intervalIntegrable
+    exact ContinuousOn.mul continuousOn_const
+      (ContinuousOn.inv₀ ((cont_v x₁).continuousOn.sub continuousOn_const)
+        (fun y _ => sub_ne_zero.mpr (hneV1 y)))
+  have hH1 : ∫ x in x₁..x₂, g ((x:ℂ) + (y₁:ℂ)*I) * (((x:ℂ) + (y₁:ℂ)*I) - a)⁻¹
+      = (∫ x in x₁..x₂, dslope g a ((x:ℂ) + (y₁:ℂ)*I))
+        + g a * (∫ x in x₁..x₂, (((x:ℂ) + (y₁:ℂ)*I) - a)⁻¹) := by
+    rw [← intervalIntegral.integral_const_mul]
+    rw [← intervalIntegral.integral_add iD1 iV1]
+    apply intervalIntegral.integral_congr
+    intro x _
+    exact div_sub_split (hneH1 x)
+  have hH2 : ∫ x in x₁..x₂, g ((x:ℂ) + (y₂:ℂ)*I) * (((x:ℂ) + (y₂:ℂ)*I) - a)⁻¹
+      = (∫ x in x₁..x₂, dslope g a ((x:ℂ) + (y₂:ℂ)*I))
+        + g a * (∫ x in x₁..x₂, (((x:ℂ) + (y₂:ℂ)*I) - a)⁻¹) := by
+    rw [← intervalIntegral.integral_const_mul]
+    rw [← intervalIntegral.integral_add iD2 iV2]
+    apply intervalIntegral.integral_congr
+    intro x _
+    exact div_sub_split (hneH2 x)
+  have hV2 : ∫ y in y₁..y₂, g ((x₂:ℂ) + (y:ℂ)*I) * (((x₂:ℂ) + (y:ℂ)*I) - a)⁻¹
+      = (∫ y in y₁..y₂, dslope g a ((x₂:ℂ) + (y:ℂ)*I))
+        + g a * (∫ y in y₁..y₂, (((x₂:ℂ) + (y:ℂ)*I) - a)⁻¹) := by
+    rw [← intervalIntegral.integral_const_mul]
+    rw [← intervalIntegral.integral_add iD3 iV3]
+    apply intervalIntegral.integral_congr
+    intro y _
+    exact div_sub_split (hneV2 y)
+  have hV1 : ∫ y in y₁..y₂, g ((x₁:ℂ) + (y:ℂ)*I) * (((x₁:ℂ) + (y:ℂ)*I) - a)⁻¹
+      = (∫ y in y₁..y₂, dslope g a ((x₁:ℂ) + (y:ℂ)*I))
+        + g a * (∫ y in y₁..y₂, (((x₁:ℂ) + (y:ℂ)*I) - a)⁻¹) := by
+    rw [← intervalIntegral.integral_const_mul]
+    rw [← intervalIntegral.integral_add iD4 iV4]
+    apply intervalIntegral.integral_congr
+    intro y _
+    exact div_sub_split (hneV1 y)
+  rw [hH1, hH2, hV2, hV1]
+  have hz := boundary_entire_zero hds (x₁ := x₁) (x₂ := x₂) (y₁ := y₁) (y₂ := y₂)
+  have hr := rectangle_residue_at (a := a) (x₁ := x₁) (x₂ := x₂) (y₁ := y₁) (y₂ := y₂)
+    hx1 hx2 hy1 hy2
+  linear_combination hz + g a * hr
+
+end BMORProp21
+
+-- ==== BMORCpowResidue.lean ====
+
+
+/-!
+# The Perron residue with the `x^s` weight
+
+`∫_{∂R} x^s/(s-ρ) ds = 2πi·x^ρ` for `x ≠ 0` and `ρ` strictly inside the rectangle. This is the
+statement that turns each zero `ρ` of `L` into a contribution `m_ρ·x^ρ`.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology
+
+/-- `s ↦ x^s` is entire for `x ≠ 0`. -/
+theorem differentiable_cpow_const {x : ℂ} (hx : x ≠ 0) :
+    Differentiable ℂ (fun s : ℂ => x ^ s) := by
+  have h : (fun s : ℂ => x ^ s) = (fun s : ℂ => Complex.exp (Complex.log x * s)) := by
+    funext s
+    exact cpow_def_of_ne_zero hx s
+  rw [h]
+  have hlin : Differentiable ℂ (fun s : ℂ => Complex.log x * s) :=
+    (differentiable_const (c := Complex.log x)).mul differentiable_id
+  exact Complex.differentiable_exp.comp hlin
+
+/-- The weighted residue at a zero `ρ`. -/
+theorem boundary_cpow_residue {x : ℂ} (hx : x ≠ 0) {ρ : ℂ} {x₁ x₂ y₁ y₂ : ℝ}
+    (h1 : x₁ < ρ.re) (h2 : ρ.re < x₂) (h3 : y₁ < ρ.im) (h4 : ρ.im < y₂) :
+    (∫ t in x₁..x₂, x ^ ((t:ℂ) + (y₁:ℂ)*I) * (((t:ℂ) + (y₁:ℂ)*I) - ρ)⁻¹)
+      - (∫ t in x₁..x₂, x ^ ((t:ℂ) + (y₂:ℂ)*I) * (((t:ℂ) + (y₂:ℂ)*I) - ρ)⁻¹)
+      + I*(∫ t in y₁..y₂, x ^ ((x₂:ℂ) + (t:ℂ)*I) * (((x₂:ℂ) + (t:ℂ)*I) - ρ)⁻¹)
+      - I*(∫ t in y₁..y₂, x ^ ((x₁:ℂ) + (t:ℂ)*I) * (((x₁:ℂ) + (t:ℂ)*I) - ρ)⁻¹)
+    = 2 * (Real.pi : ℂ) * I * x ^ ρ :=
+  boundary_weighted_residue (differentiable_cpow_const hx) h1 h2 h3 h4
+
+end BMORProp21
+
+-- ==== BMORLogDerivProd.lean ====
+
+
+/-!
+# Logarithmic derivative of a finite product of powers
+
+`(∏_{ρ ∈ σ} (· - ρ)^{m ρ})' / (∏ ...) = Σ_{ρ ∈ σ} m ρ / (s - ρ)`.
+
+This turns the principal part `P'/P` of `L'/L` into a finite sum of simple poles, which is what
+the weighted residue formula is applied to.
+-/
+
+namespace BMORProp21
+
+open Complex
+
+/-- The logarithmic derivative of `z ↦ z - ρ`. -/
+theorem logDeriv_sub_const (s ρ : ℂ) : logDeriv (fun z : ℂ => z - ρ) s = (s - ρ)⁻¹ := by
+  simp [logDeriv_apply, sub_eq_add_neg]
+
+/-- The logarithmic derivative of a finite product of powers. -/
+theorem logDeriv_prod_pow {σ : Finset ℂ} {m : ℂ → ℕ} {s : ℂ}
+    (hs : ∀ ρ ∈ σ, s ≠ ρ) :
+    logDeriv (fun z : ℂ => ∏ ρ ∈ σ, (z - ρ)^(m ρ)) s
+      = ∑ ρ ∈ σ, (m ρ : ℂ) / (s - ρ) := by
+  have hfun : (fun z : ℂ => ∏ ρ ∈ σ, (z - ρ)^(m ρ))
+      = (∏ ρ ∈ σ, fun z : ℂ => (z - ρ)^(m ρ)) := by
+    funext z
+    rw [Finset.prod_apply]
+  rw [hfun, logDeriv_prod]
+  · refine Finset.sum_congr rfl ?_
+    intro ρ hρ
+    rw [logDeriv_fun_pow (f := fun z : ℂ => z - ρ) (n := m ρ) (differentiableAt_id.sub_const ρ), logDeriv_sub_const]
+    field_simp
+  · intro ρ hρ
+    exact pow_ne_zero _ (sub_ne_zero.mpr (hs ρ hρ))
+  · intro ρ hρ
+    fun_prop
+
+end BMORProp21
+
+-- ==== BMORSumInterchange.lean ====
+
+
+/-!
+# Interchanging a finite sum with a segment integral
+
+`∫_a^b Σ_i c_i * f_i(t) dt = Σ_i c_i * ∫_a^b f_i(t) dt`. Used to move the sum over the zeros of
+`L` outside the Perron integral.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+/-- A finite sum of interval-integrable functions is interval-integrable. -/
+theorem intervalIntegrable_finset_sum {ι : Type*} (σ : Finset ι) (g : ι → ℝ → ℂ)
+    (h : ∀ i ∈ σ, IntervalIntegrable (g i) volume x₁ x₂) :
+    IntervalIntegrable (fun t => ∑ i ∈ σ, g i t) volume x₁ x₂ := by
+  classical
+  induction σ using Finset.induction_on with
+  | empty => simpa using (continuous_const : Continuous fun _ : ℝ => (0:ℂ)).intervalIntegrable x₁ x₂
+  | insert a s ha ih =>
+      have h1 := h a (Finset.mem_insert_self a s)
+      have h2 := ih (fun i hi => h i (Finset.mem_insert_of_mem hi))
+      have heq : (fun t => ∑ i ∈ insert a s, g i t) = (fun t => g a t + ∑ i ∈ s, g i t) := by
+        funext t
+        rw [Finset.sum_insert ha]
+      rw [heq]
+      exact h1.add h2
+
+/-- A finite sum of constant multiples can be integrated termwise. -/
+theorem integral_finset_sum_gen {ι : Type*} (σ : Finset ι) (c : ι → ℂ) (f : ι → ℝ → ℂ)
+    (h : ∀ i ∈ σ, IntervalIntegrable (fun t => f i t) volume x₁ x₂) :
+    ∫ t in x₁..x₂, ∑ i ∈ σ, c i * f i t = ∑ i ∈ σ, c i * ∫ t in x₁..x₂, f i t := by
+  classical
+  induction σ using Finset.induction_on with
+  | empty => simp
+  | insert a s ha ih =>
+      have h1 : IntervalIntegrable (fun t => c a * f a t) volume x₁ x₂ :=
+        (h a (Finset.mem_insert_self a s)).const_mul (c a)
+      have h2 : IntervalIntegrable (fun t => ∑ i ∈ s, c i * f i t) volume x₁ x₂ :=
+        intervalIntegrable_finset_sum s (fun i => fun t => c i * f i t)
+          (fun i hi => (h i (Finset.mem_insert_of_mem hi)).const_mul (c i))
+      have heq : (fun t => ∑ i ∈ insert a s, c i * f i t)
+          = (fun t => c a * f a t + ∑ i ∈ s, c i * f i t) := by
+        funext t
+        rw [Finset.sum_insert ha]
+      rw [heq, intervalIntegral.integral_add h1 h2, intervalIntegral.integral_const_mul,
+        ih (fun i hi => h i (Finset.mem_insert_of_mem hi)), Finset.sum_insert ha]
+
+end BMORProp21
+
+-- ==== BMORBnd.lean ====
+
+
+/-!
+# The rectangle boundary functional
+
+Bundling the four side integrals into a single functional `bnd` makes the linearity of the
+boundary integral explicit, so that the residue computation becomes ordinary algebra.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology
+
+/-- The horizontal leg of the boundary at height `y`. -/
+noncomputable def segH (F : ℂ → ℂ) (y : ℝ) (x₁ x₂ : ℝ) : ℂ :=
+  ∫ x in x₁..x₂, F ((x:ℂ) + (y:ℂ)*I)
+
+/-- The vertical leg of the boundary at abscissa `x`. -/
+noncomputable def segV (F : ℂ → ℂ) (x : ℝ) (y₁ y₂ : ℝ) : ℂ :=
+  ∫ y in y₁..y₂, F ((x:ℂ) + (y:ℂ)*I)
+
+/-- The boundary integral of `F` around the rectangle with corners `(x₁,y₁)`, `(x₂,y₂)`. -/
+noncomputable def bnd (F : ℂ → ℂ) (x₁ x₂ y₁ y₂ : ℝ) : ℂ :=
+  segH F y₁ x₁ x₂ - segH F y₂ x₁ x₂ + I*segV F x₂ y₁ y₂ - I*segV F x₁ y₁ y₂
+
+theorem segH_add {F G : ℂ → ℂ} (hF : Continuous F) (hG : Continuous G) :
+    segH (fun z => F z + G z) y x₁ x₂ = segH F y x₁ x₂ + segH G y x₁ x₂ := by
+  unfold segH
+  rw [intervalIntegral.integral_add (f := fun x : ℝ => F ((x:ℂ) + (y:ℂ)*I))
+    (g := fun x : ℝ => G ((x:ℂ) + (y:ℂ)*I))
+    ((hF.comp (cont_h y)).intervalIntegrable _ _)
+    ((hG.comp (cont_h y)).intervalIntegrable _ _)]
+
+theorem segV_add {F G : ℂ → ℂ} (hF : Continuous F) (hG : Continuous G) :
+    segV (fun z => F z + G z) x y₁ y₂ = segV F x y₁ y₂ + segV G x y₁ y₂ := by
+  unfold segV
+  rw [intervalIntegral.integral_add (f := fun y : ℝ => F ((x:ℂ) + (y:ℂ)*I))
+    (g := fun y : ℝ => G ((x:ℂ) + (y:ℂ)*I))
+    ((hF.comp (cont_v x)).intervalIntegrable _ _)
+    ((hG.comp (cont_v x)).intervalIntegrable _ _)]
+
+theorem segH_const_mul (c : ℂ) {F : ℂ → ℂ} (hF : Continuous F) :
+    segH (fun z => c * F z) y x₁ x₂ = c * segH F y x₁ x₂ := by
+  unfold segH
+  rw [intervalIntegral.integral_const_mul]
+
+theorem segV_const_mul (c : ℂ) {F : ℂ → ℂ} (hF : Continuous F) :
+    segV (fun z => c * F z) x y₁ y₂ = c * segV F x y₁ y₂ := by
+  unfold segV
+  rw [intervalIntegral.integral_const_mul]
+
+/-- Entire functions have zero boundary integral. -/
+theorem bnd_entire_zero {g : ℂ → ℂ} (hg : Differentiable ℂ g) :
+    bnd g x₁ x₂ y₁ y₂ = 0 := by
+  unfold bnd segH segV
+  exact boundary_entire_zero hg
+
+/-- Additivity of the boundary functional. -/
+theorem bnd_add {F G : ℂ → ℂ} (hF : Continuous F) (hG : Continuous G) :
+    bnd (fun z => F z + G z) x₁ x₂ y₁ y₂
+      = bnd F x₁ x₂ y₁ y₂ + bnd G x₁ x₂ y₁ y₂ := by
+  unfold bnd
+  rw [segH_add hF hG, segH_add hF hG, segV_add hF hG, segV_add hF hG]
+  ring
+
+/-- Homogeneity of the boundary functional. -/
+theorem bnd_const_mul (c : ℂ) {F : ℂ → ℂ} (hF : Continuous F) :
+    bnd (fun z => c * F z) x₁ x₂ y₁ y₂ = c * bnd F x₁ x₂ y₁ y₂ := by
+  unfold bnd
+  rw [segH_const_mul c hF, segH_const_mul c hF, segV_const_mul c hF, segV_const_mul c hF]
+  ring
+
+end BMORProp21
+
+-- ==== BMORBndSum.lean ====
+
+
+/-!
+# The boundary functional applied to `x^s` times a simple pole, and its additivity over sums
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+/-- The boundary functional kills the zero function. -/
+theorem bnd_zero : bnd (fun _ => (0:ℂ)) x₁ x₂ y₁ y₂ = 0 := by
+  unfold bnd segH segV
+  simp
+
+/-- A finite sum of continuous functions is continuous. -/
+theorem continuous_finset_sum_c {ι : Type*} (σ : Finset ι) (F : ι → ℂ → ℂ)
+    (hF : ∀ i ∈ σ, Continuous (F i)) :
+    Continuous (fun z => ∑ i ∈ σ, F i z) := by
+  classical
+  induction σ using Finset.induction_on with
+  | empty => simpa using continuous_const
+  | insert a s ha ih =>
+      have h1 : Continuous (F a) := hF a (Finset.mem_insert_self a s)
+      have h2 : Continuous (fun z => ∑ i ∈ s, F i z) :=
+        ih (fun i hi => hF i (Finset.mem_insert_of_mem hi))
+      have hsum : (fun z => ∑ i ∈ insert a s, F i z) = (fun z => F a z + ∑ i ∈ s, F i z) := by
+        funext z
+        rw [Finset.sum_insert ha]
+      rw [hsum]
+      exact h1.add h2
+
+/-- The boundary functional is additive over a finite sum. -/
+theorem bnd_finset_sum {ι : Type*} (σ : Finset ι) (F : ι → ℂ → ℂ)
+    (hF : ∀ i ∈ σ, Continuous (F i)) :
+    bnd (fun z => ∑ i ∈ σ, F i z) x₁ x₂ y₁ y₂ = ∑ i ∈ σ, bnd (F i) x₁ x₂ y₁ y₂ := by
+  classical
+  induction σ using Finset.induction_on with
+  | empty =>
+      have h0 : (fun z => ∑ i ∈ (∅ : Finset ι), F i z) = (fun _ => (0:ℂ)) := by
+        funext z
+        simp
+      rw [h0]
+      simp only [Finset.sum_empty]
+      exact bnd_zero
+  | insert a s ha ih =>
+      have h1 : Continuous (F a) := hF a (Finset.mem_insert_self a s)
+      have h2 : Continuous (fun z => ∑ i ∈ s, F i z) :=
+        continuous_finset_sum_c s F (fun i hi => hF i (Finset.mem_insert_of_mem hi))
+      have hsum : (fun z => ∑ i ∈ insert a s, F i z) = (fun z => F a z + ∑ i ∈ s, F i z) := by
+        funext z
+        rw [Finset.sum_insert ha]
+      rw [hsum, bnd_add h1 h2, ih (fun i hi => hF i (Finset.mem_insert_of_mem hi)),
+        Finset.sum_insert ha]
+
+/-- The weighted residue in `bnd` form. -/
+theorem bnd_cpow_residue {x : ℂ} (hx : x ≠ 0) {ρ : ℂ} {x₁ x₂ y₁ y₂ : ℝ}
+    (h1 : x₁ < ρ.re) (h2 : ρ.re < x₂) (h3 : y₁ < ρ.im) (h4 : ρ.im < y₂) :
+    bnd (fun s => x ^ s * (s - ρ)⁻¹) x₁ x₂ y₁ y₂ = 2 * (Real.pi : ℂ) * I * x ^ ρ := by
+  unfold bnd segH segV
+  exact boundary_cpow_residue hx h1 h2 h3 h4
+
+end BMORProp21
+
+-- ==== BMORPoles2.lean ====
+
+
+/-!
+# The principal part of `L'/L` integrated against `x^s`
+
+General form: for a continuous parametrisation `φ` staying away from all the poles, the finite sum
+over the poles can be moved outside the integral.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+/-- Continuity of `t ↦ x^s` along a continuous parametrisation. -/
+theorem continuous_cpow_comp {x : ℂ} (hx : x ≠ 0) {φ : ℝ → ℂ} (hφ : Continuous φ) :
+    Continuous fun t => x ^ (φ t) := by
+  have h : (fun t => x ^ (φ t)) = (fun t => Complex.exp (Complex.log x * φ t)) := by
+    funext t
+    exact cpow_def_of_ne_zero hx _
+  rw [h]
+  exact Complex.continuous_exp.comp (continuous_const.mul hφ)
+
+/-- Integrability of a single pole term along a parametrised segment. -/
+theorem integrable_along {x : ℂ} (hx : x ≠ 0) {φ : ℝ → ℂ} (hφ : Continuous φ)
+    {ρ : ℂ} (hne : ∀ t : ℝ, φ t ≠ ρ) {a b : ℝ} :
+    IntervalIntegrable (fun t : ℝ => x ^ (φ t) * (φ t - ρ)⁻¹) volume a b := by
+  apply ContinuousOn.intervalIntegrable
+  apply ContinuousOn.mul (continuous_cpow_comp hx hφ).continuousOn
+  apply ContinuousOn.inv₀ (hφ.sub continuous_const).continuousOn
+  intro t _
+  exact sub_ne_zero.mpr (hne t)
+
+/-- Sum interchange along a parametrised segment. -/
+theorem exchange_gen {x : ℂ} (hx : x ≠ 0) {σ : Finset ℂ} {m : ℂ → ℕ} {φ : ℝ → ℂ}
+    (hφ : Continuous φ) (hne : ∀ ρ ∈ σ, ∀ t : ℝ, φ t ≠ ρ) {a b : ℝ} :
+    ∫ t in a..b, ∑ ρ ∈ σ, (m ρ : ℂ) * (x ^ (φ t) * (φ t - ρ)⁻¹)
+      = ∑ ρ ∈ σ, (m ρ : ℂ) * ∫ t in a..b, (x ^ (φ t) * (φ t - ρ)⁻¹) :=
+  integral_finset_sum_gen (x₁ := a) (x₂ := b) σ (fun ρ => (m ρ : ℂ))
+    (fun ρ t => x ^ (φ t) * (φ t - ρ)⁻¹)
+    (fun ρ hρ => integrable_along hx hφ (fun t => hne ρ hρ t))
+
+end BMORProp21
+
+-- ==== BMORPoleSum.lean ====
+
+
+/-!
+# The principal part of `L'/L` integrated against `x^s`
+
+`bnd (fun s => Σ_ρ m_ρ * (x^s * (s-ρ)⁻¹)) = 2πi * Σ_ρ m_ρ * x^ρ`
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+set_option maxHeartbeats 800000 in
+/-- Sum interchange on the four sides of the rectangle. -/
+theorem bnd_sum_poles {x : ℂ} (hx : x ≠ 0) {σ : Finset ℂ} {m : ℂ → ℕ}
+    {x₁ x₂ y₁ y₂ : ℝ}
+    (hin : ∀ ρ ∈ σ, x₁ < ρ.re ∧ ρ.re < x₂ ∧ y₁ < ρ.im ∧ ρ.im < y₂) :
+    bnd (fun s => ∑ ρ ∈ σ, (m ρ : ℂ) * (x ^ s * (s - ρ)⁻¹)) x₁ x₂ y₁ y₂
+      = (2 * (Real.pi : ℂ) * I) * ∑ ρ ∈ σ, (m ρ : ℂ) * x ^ ρ := by
+  have hne1 : ∀ ρ ∈ σ, ∀ t : ℝ, ((t:ℂ) + (y₁:ℂ)*I) ≠ ρ := by
+    intro ρ hρ t h
+    have him : y₁ = ρ.im := by simpa using congrArg Complex.im h
+    linarith [(hin ρ hρ).2.2.1]
+  have hne2 : ∀ ρ ∈ σ, ∀ t : ℝ, ((t:ℂ) + (y₂:ℂ)*I) ≠ ρ := by
+    intro ρ hρ t h
+    have him : y₂ = ρ.im := by simpa using congrArg Complex.im h
+    linarith [(hin ρ hρ).2.2.2]
+  have hne3 : ∀ ρ ∈ σ, ∀ t : ℝ, ((x₂:ℂ) + (t:ℂ)*I) ≠ ρ := by
+    intro ρ hρ t h
+    have hre : x₂ = ρ.re := by simpa using congrArg Complex.re h
+    linarith [(hin ρ hρ).2.1]
+  have hne4 : ∀ ρ ∈ σ, ∀ t : ℝ, ((x₁:ℂ) + (t:ℂ)*I) ≠ ρ := by
+    intro ρ hρ t h
+    have hre : x₁ = ρ.re := by simpa using congrArg Complex.re h
+    linarith [(hin ρ hρ).1]
+  have e1 : segH (fun s => ∑ ρ ∈ σ, (m ρ : ℂ) * (x ^ s * (s - ρ)⁻¹)) y₁ x₁ x₂
+      = ∑ ρ ∈ σ, (m ρ : ℂ) * segH (fun s => x ^ s * (s - ρ)⁻¹) y₁ x₁ x₂ := by
+    unfold segH
+    rw [exchange_gen hx (cont_h y₁) hne1]
+  have e2 : segH (fun s => ∑ ρ ∈ σ, (m ρ : ℂ) * (x ^ s * (s - ρ)⁻¹)) y₂ x₁ x₂
+      = ∑ ρ ∈ σ, (m ρ : ℂ) * segH (fun s => x ^ s * (s - ρ)⁻¹) y₂ x₁ x₂ := by
+    unfold segH
+    rw [exchange_gen hx (cont_h y₂) hne2]
+  have e3 : segV (fun s => ∑ ρ ∈ σ, (m ρ : ℂ) * (x ^ s * (s - ρ)⁻¹)) x₂ y₁ y₂
+      = ∑ ρ ∈ σ, (m ρ : ℂ) * segV (fun s => x ^ s * (s - ρ)⁻¹) x₂ y₁ y₂ := by
+    unfold segV
+    rw [exchange_gen hx (cont_v x₂) hne3]
+  have e4 : segV (fun s => ∑ ρ ∈ σ, (m ρ : ℂ) * (x ^ s * (s - ρ)⁻¹)) x₁ y₁ y₂
+      = ∑ ρ ∈ σ, (m ρ : ℂ) * segV (fun s => x ^ s * (s - ρ)⁻¹) x₁ y₁ y₂ := by
+    unfold segV
+    rw [exchange_gen hx (cont_v x₁) hne4]
+  have hbnd : bnd (fun s => ∑ ρ ∈ σ, (m ρ : ℂ) * (x ^ s * (s - ρ)⁻¹)) x₁ x₂ y₁ y₂
+      = ∑ ρ ∈ σ, (m ρ : ℂ) * bnd (fun s => x ^ s * (s - ρ)⁻¹) x₁ x₂ y₁ y₂ := by
+    unfold bnd
+    rw [e1, e2, e3, e4]
+    rw [← Finset.sum_sub_distrib, Finset.mul_sum, ← Finset.sum_add_distrib,
+        Finset.mul_sum, ← Finset.sum_sub_distrib]
+    apply Finset.sum_congr rfl
+    intro ρ hρ
+    ring
+  rw [hbnd, Finset.mul_sum]
+  apply Finset.sum_congr rfl
+  intro ρ hρ
+  rw [bnd_cpow_residue hx (hin ρ hρ).1 (hin ρ hρ).2.1 (hin ρ hρ).2.2.1 (hin ρ hρ).2.2.2]
+  ring
+
+end BMORProp21
+
+-- ==== BMORBndLocal.lean ====
+
+
+/-!
+# The boundary functional on functions holomorphic only near the rectangle
+
+`bnd F = 0` whenever `F` is complex differentiable on the closed rectangle. This is the local
+version of `bnd_entire_zero`, needed for `g'/g` when `g` has zeros outside the rectangle.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+/-- `bnd` vanishes on functions differentiable on the closed rectangle. -/
+theorem bnd_diffOn_zero {F : ℂ → ℂ} {x₁ x₂ y₁ y₂ : ℝ} (hx : x₁ ≤ x₂) (hy : y₁ ≤ y₂)
+    (hF : DifferentiableOn ℂ F (Set.Icc x₁ x₂ ×ℂ Set.Icc y₁ y₂)) :
+    bnd F x₁ x₂ y₁ y₂ = 0 := by
+  have h' : DifferentiableOn ℂ F
+      (Set.uIcc ((x₁:ℂ) + (y₁:ℂ)*I).re ((x₂:ℂ) + (y₂:ℂ)*I).re
+        ×ℂ Set.uIcc ((x₁:ℂ) + (y₁:ℂ)*I).im ((x₂:ℂ) + (y₂:ℂ)*I).im) := by
+    simpa [Set.uIcc_of_le hx, Set.uIcc_of_le hy] using hF
+  have h := Complex.integral_boundary_rect_eq_zero_of_differentiableOn F
+    ((x₁:ℂ) + (y₁:ℂ)*I) ((x₂:ℂ) + (y₂:ℂ)*I) h'
+  unfold bnd segH segV
+  simpa using h
+
+end BMORProp21
+
+-- ==== BMORBndAddOn.lean ====
+
+
+/-!
+# Additivity of `bnd` for functions only continuous on the rectangle
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+/-- The closed rectangle as a set of complex numbers. -/
+def rectSet (x₁ x₂ y₁ y₂ : ℝ) : Set ℂ := Set.uIcc x₁ x₂ ×ℂ Set.uIcc y₁ y₂
+
+/-- Integrability of a horizontal leg for functions continuous on the rectangle. -/
+theorem intH_of_continuousOn {F : ℂ → ℂ} {x₁ x₂ y₁ y₂ : ℝ}
+    (hF : ContinuousOn F (rectSet x₁ x₂ y₁ y₂)) (y : ℝ) (hy : y ∈ Set.uIcc y₁ y₂) :
+    IntervalIntegrable (fun t : ℝ => F ((t:ℂ) + (y:ℂ)*I)) volume x₁ x₂ := by
+  apply ContinuousOn.intervalIntegrable
+  exact hF.comp (cont_h y).continuousOn (fun t ht => by
+    have hr : ((t:ℂ) + (y:ℂ)*I).re ∈ Set.uIcc x₁ x₂ := by simpa using ht
+    have him : ((t:ℂ) + (y:ℂ)*I).im ∈ Set.uIcc y₁ y₂ := by simpa using hy
+    exact ⟨hr, him⟩)
+
+/-- Integrability of a vertical leg for functions continuous on the rectangle. -/
+theorem intV_of_continuousOn {F : ℂ → ℂ} {x₁ x₂ y₁ y₂ : ℝ}
+    (hF : ContinuousOn F (rectSet x₁ x₂ y₁ y₂)) (x : ℝ) (hx : x ∈ Set.uIcc x₁ x₂) :
+    IntervalIntegrable (fun t : ℝ => F ((x:ℂ) + (t:ℂ)*I)) volume y₁ y₂ := by
+  apply ContinuousOn.intervalIntegrable
+  exact hF.comp (cont_v x).continuousOn (fun t ht => by
+    have hr : ((x:ℂ) + (t:ℂ)*I).re ∈ Set.uIcc x₁ x₂ := by simpa using hx
+    have him : ((x:ℂ) + (t:ℂ)*I).im ∈ Set.uIcc y₁ y₂ := by simpa using ht
+    exact ⟨hr, him⟩)
+
+/-- Additivity of `bnd` for functions continuous on the rectangle. -/
+theorem bnd_addOn {F G : ℂ → ℂ} {x₁ x₂ y₁ y₂ : ℝ}
+    (hF : ContinuousOn F (rectSet x₁ x₂ y₁ y₂))
+    (hG : ContinuousOn G (rectSet x₁ x₂ y₁ y₂)) :
+    bnd (fun z => F z + G z) x₁ x₂ y₁ y₂
+      = bnd F x₁ x₂ y₁ y₂ + bnd G x₁ x₂ y₁ y₂ := by
+  unfold bnd segH segV
+  rw [intervalIntegral.integral_add
+    (intH_of_continuousOn hF y₁ (Set.left_mem_uIcc))
+    (intH_of_continuousOn hG y₁ (Set.left_mem_uIcc)),
+    intervalIntegral.integral_add
+    (intH_of_continuousOn hF y₂ (Set.right_mem_uIcc))
+    (intH_of_continuousOn hG y₂ (Set.right_mem_uIcc)),
+    intervalIntegral.integral_add
+    (intV_of_continuousOn hF x₂ (Set.right_mem_uIcc))
+    (intV_of_continuousOn hG x₂ (Set.right_mem_uIcc)),
+    intervalIntegral.integral_add
+    (intV_of_continuousOn hF x₁ (Set.left_mem_uIcc))
+    (intV_of_continuousOn hG x₁ (Set.left_mem_uIcc))]
+  ring
+
+end BMORProp21
+
+-- ==== BMORBndCongr.lean ====
+
+
+/-!
+# Congruence of the boundary functional
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+/-- `bnd` respects pointwise equality on the four legs of the boundary. -/
+theorem bnd_congr4 {F G : ℂ → ℂ} {x₁ x₂ y₁ y₂ : ℝ}
+    (h1 : ∀ t ∈ Set.uIcc x₁ x₂, F ((t:ℂ) + (y₁:ℂ)*I) = G ((t:ℂ) + (y₁:ℂ)*I))
+    (h2 : ∀ t ∈ Set.uIcc x₁ x₂, F ((t:ℂ) + (y₂:ℂ)*I) = G ((t:ℂ) + (y₂:ℂ)*I))
+    (h3 : ∀ t ∈ Set.uIcc y₁ y₂, F ((x₂:ℂ) + (t:ℂ)*I) = G ((x₂:ℂ) + (t:ℂ)*I))
+    (h4 : ∀ t ∈ Set.uIcc y₁ y₂, F ((x₁:ℂ) + (t:ℂ)*I) = G ((x₁:ℂ) + (t:ℂ)*I)) :
+    bnd F x₁ x₂ y₁ y₂ = bnd G x₁ x₂ y₁ y₂ := by
+  unfold bnd segH segV
+  rw [intervalIntegral.integral_congr h1, intervalIntegral.integral_congr h2,
+    intervalIntegral.integral_congr h3, intervalIntegral.integral_congr h4]
+
+/-- `bnd` respects pointwise equality on the rectangle. -/
+theorem bnd_congr {F G : ℂ → ℂ} {x₁ x₂ y₁ y₂ : ℝ}
+    (h : ∀ z ∈ rectSet x₁ x₂ y₁ y₂, F z = G z) :
+    bnd F x₁ x₂ y₁ y₂ = bnd G x₁ x₂ y₁ y₂ := by
+  refine bnd_congr4 (fun t ht => h _ ⟨by simpa using ht, by simpa using Set.left_mem_uIcc⟩)
+    (fun t ht => h _ ⟨by simpa using ht, by simpa using Set.right_mem_uIcc⟩)
+    (fun t ht => h _ ⟨by simpa using Set.right_mem_uIcc, by simpa using ht⟩)
+    (fun t ht => h _ ⟨by simpa using Set.left_mem_uIcc, by simpa using ht⟩)
+
+end BMORProp21
+
+-- ==== BMORCrossZero.lean ====
+
+
+/-!
+# The zero-factor part of the cross-zero identity
+
+`bnd (fun s => x^s · (P'/P)(s)) = 2πi · Σ_ρ m_ρ · x^ρ`
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+/-- On the boundary the logarithmic derivative of the zero factor is the sum of simple poles. -/
+theorem logDeriv_zeroFactorC_on {f : ℂ → ℂ} (df : Differentiable ℂ f) (R : Set ℂ)
+    (hR : IsCompact R) {z : ℂ} (hz : ∀ a ∈ BMORRectFactor.rootsC f R hR, z ≠ a) :
+    logDeriv (BMORRectFactor.zeroFactorC f R) z
+      = ∑ a ∈ BMORRectFactor.rootsC f R hR,
+          (BMORRectFactor.multC f R a : ℂ) / (z - a) := by
+  have hfun : BMORRectFactor.zeroFactorC f R
+      = (fun w : ℂ => ∏ a ∈ BMORRectFactor.rootsC f R hR,
+          (w - a) ^ (BMORRectFactor.multC f R a)) := by
+    funext w
+    exact BMORRectFactor.factor_prod_compact df R hR w
+  have hlhs : logDeriv (fun w : ℂ => ∏ a ∈ BMORRectFactor.rootsC f R hR,
+      (w - a) ^ (BMORRectFactor.multC f R a)) z
+      = logDeriv (BMORRectFactor.zeroFactorC f R) z := by
+    congr 1
+    exact hfun.symm
+  rw [← hlhs]
+  exact logDeriv_prod_pow hz
+
+
+/-- The zero-factor part of the cross-zero identity. -/
+theorem bnd_logDeriv_zeroFactorC {f : ℂ → ℂ} (df : Differentiable ℂ f) (R : Set ℂ)
+    (hR : IsCompact R) {x : ℂ} (hx : x ≠ 0) {x₁ x₂ y₁ y₂ : ℝ}
+    (hin : ∀ ρ ∈ BMORRectFactor.rootsC f R hR,
+      x₁ < ρ.re ∧ ρ.re < x₂ ∧ y₁ < ρ.im ∧ ρ.im < y₂) :
+    bnd (fun s => x ^ s * logDeriv (BMORRectFactor.zeroFactorC f R) s) x₁ x₂ y₁ y₂
+      = (2 * (Real.pi : ℂ) * I) *
+          ∑ ρ ∈ BMORRectFactor.rootsC f R hR,
+            (BMORRectFactor.multC f R ρ : ℂ) * x ^ ρ := by
+  set σ := BMORRectFactor.rootsC f R hR with hσ
+  have key : ∀ z : ℂ, (∀ a ∈ σ, z ≠ a) →
+      x ^ z * logDeriv (BMORRectFactor.zeroFactorC f R) z
+        = ∑ a ∈ σ, (BMORRectFactor.multC f R a : ℂ) * (x ^ z * (z - a)⁻¹) := by
+    intro z hz
+    rw [logDeriv_zeroFactorC_on df R hR hz, Finset.mul_sum]
+    apply Finset.sum_congr rfl
+    intro a ha
+    ring
+  have hne1 : ∀ a ∈ σ, ∀ t : ℝ, ((t:ℂ) + (y₁:ℂ)*I) ≠ a := by
+    intro a ha t h
+    have him : y₁ = a.im := by simpa using congrArg Complex.im h
+    linarith [(hin a ha).2.2.1]
+  have hne2 : ∀ a ∈ σ, ∀ t : ℝ, ((t:ℂ) + (y₂:ℂ)*I) ≠ a := by
+    intro a ha t h
+    have him : y₂ = a.im := by simpa using congrArg Complex.im h
+    linarith [(hin a ha).2.2.2]
+  have hne3 : ∀ a ∈ σ, ∀ t : ℝ, ((x₂:ℂ) + (t:ℂ)*I) ≠ a := by
+    intro a ha t h
+    have hre : x₂ = a.re := by simpa using congrArg Complex.re h
+    linarith [(hin a ha).2.1]
+  have hne4 : ∀ a ∈ σ, ∀ t : ℝ, ((x₁:ℂ) + (t:ℂ)*I) ≠ a := by
+    intro a ha t h
+    have hre : x₁ = a.re := by simpa using congrArg Complex.re h
+    linarith [(hin a ha).1]
+  have hcongr : bnd (fun s => x ^ s * logDeriv (BMORRectFactor.zeroFactorC f R) s) x₁ x₂ y₁ y₂
+      = bnd (fun s => ∑ a ∈ σ, (BMORRectFactor.multC f R a : ℂ) * (x ^ s * (s - a)⁻¹))
+          x₁ x₂ y₁ y₂ :=
+    bnd_congr4 (G := fun s => ∑ a ∈ σ, (BMORRectFactor.multC f R a : ℂ) * (x ^ s * (s - a)⁻¹))
+      (fun t _ => key _ (fun a ha => hne1 a ha t))
+      (fun t _ => key _ (fun a ha => hne2 a ha t))
+      (fun t _ => key _ (fun a ha => hne3 a ha t))
+      (fun t _ => key _ (fun a ha => hne4 a ha t))
+  rw [hcongr]
+  exact bnd_sum_poles hx hin
+end BMORProp21
+
+-- ==== BMORCoFactor.lean ====
+
+
+/-!
+# The cofactor part of the cross-zero identity
+
+`bnd (fun s => x^s · (g'/g)(s)) = 0` whenever `g` is entire and does not vanish on the rectangle.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+/-- `g'/g` is holomorphic where `g` does not vanish. -/
+theorem differentiableOn_logDeriv {g : ℂ → ℂ} (hg : Differentiable ℂ g) {R : Set ℂ}
+    (hne : ∀ z ∈ R, g z ≠ 0) : DifferentiableOn ℂ (logDeriv g) R := by
+  intro z hz
+  have h : DifferentiableAt ℂ (fun w => deriv g w / g w) z :=
+    (hg.deriv.differentiableAt).div hg.differentiableAt (hne z hz)
+  exact h.differentiableWithinAt
+
+/-- The cofactor part of the cross-zero identity. -/
+theorem bnd_cpow_logDeriv_cofactor {g : ℂ → ℂ} (hg : Differentiable ℂ g) {x : ℂ} (hx : x ≠ 0)
+    {x₁ x₂ y₁ y₂ : ℝ} (hle_x : x₁ ≤ x₂) (hle_y : y₁ ≤ y₂)
+    (hne : ∀ z ∈ rectSet x₁ x₂ y₁ y₂, g z ≠ 0) :
+    bnd (fun s => x ^ s * logDeriv g s) x₁ x₂ y₁ y₂ = 0 := by
+  apply bnd_diffOn_zero hle_x hle_y
+  have hR : (Set.Icc x₁ x₂ ×ℂ Set.Icc y₁ y₂) = rectSet x₁ x₂ y₁ y₂ := by
+    simp [rectSet, Set.uIcc_of_le hle_x, Set.uIcc_of_le hle_y]
+  rw [hR]
+  exact (differentiable_cpow_const hx).differentiableOn.mul (differentiableOn_logDeriv hg hne)
+
+end BMORProp21
+
+-- ==== BMORBndAdd4.lean ====
+
+
+/-!
+# Additivity of `bnd` with continuity only on the four legs
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+/-- `bnd` is additive as soon as both functions are continuous on each leg. -/
+theorem bnd_add4 {F G : ℂ → ℂ} {x₁ x₂ y₁ y₂ : ℝ}
+    (hF1 : ContinuousOn (fun t : ℝ => F ((t:ℂ) + (y₁:ℂ)*I)) (Set.uIcc x₁ x₂))
+    (hF2 : ContinuousOn (fun t : ℝ => F ((t:ℂ) + (y₂:ℂ)*I)) (Set.uIcc x₁ x₂))
+    (hF3 : ContinuousOn (fun t : ℝ => F ((x₂:ℂ) + (t:ℂ)*I)) (Set.uIcc y₁ y₂))
+    (hF4 : ContinuousOn (fun t : ℝ => F ((x₁:ℂ) + (t:ℂ)*I)) (Set.uIcc y₁ y₂))
+    (hG1 : ContinuousOn (fun t : ℝ => G ((t:ℂ) + (y₁:ℂ)*I)) (Set.uIcc x₁ x₂))
+    (hG2 : ContinuousOn (fun t : ℝ => G ((t:ℂ) + (y₂:ℂ)*I)) (Set.uIcc x₁ x₂))
+    (hG3 : ContinuousOn (fun t : ℝ => G ((x₂:ℂ) + (t:ℂ)*I)) (Set.uIcc y₁ y₂))
+    (hG4 : ContinuousOn (fun t : ℝ => G ((x₁:ℂ) + (t:ℂ)*I)) (Set.uIcc y₁ y₂)) :
+    bnd (fun z => F z + G z) x₁ x₂ y₁ y₂
+      = bnd F x₁ x₂ y₁ y₂ + bnd G x₁ x₂ y₁ y₂ := by
+  unfold bnd segH segV
+  rw [intervalIntegral.integral_add hF1.intervalIntegrable hG1.intervalIntegrable,
+    intervalIntegral.integral_add hF2.intervalIntegrable hG2.intervalIntegrable,
+    intervalIntegral.integral_add hF3.intervalIntegrable hG3.intervalIntegrable,
+    intervalIntegral.integral_add hF4.intervalIntegrable hG4.intervalIntegrable]
+  ring
+
+end BMORProp21
+
+-- ==== BMORContinuity.lean ====
+
+
+/-!
+# Continuity on a leg of the two pieces of `x^s · L'/L`
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+/-- A finite sum of continuous functions of a real variable is continuous. -/
+theorem continuous_finset_sum_r {ι : Type*} (σ : Finset ι) (g : ι → ℝ → ℂ)
+    (h : ∀ i ∈ σ, Continuous (g i)) :
+    Continuous (fun t => ∑ i ∈ σ, g i t) := by
+  classical
+  induction σ using Finset.induction_on with
+  | empty => simpa using continuous_const
+  | insert a s ha ih =>
+      have h1 := h a (Finset.mem_insert_self a s)
+      have h2 := ih (fun i hi => h i (Finset.mem_insert_of_mem hi))
+      have heq : (fun t => ∑ i ∈ insert a s, g i t)
+          = (fun t => g a t + ∑ i ∈ s, g i t) := by
+        funext t
+        rw [Finset.sum_insert ha]
+      rw [heq]
+      exact h1.add h2
+
+/-- The principal part is continuous on a leg that avoids the poles. -/
+theorem continuousOn_cpow_logDerivP {f : ℂ → ℂ} (df : Differentiable ℂ f) (R : Set ℂ)
+    (hR : IsCompact R) {x : ℂ} (hx : x ≠ 0) {φ : ℝ → ℂ} (hφ : Continuous φ)
+    (hne : ∀ ρ ∈ BMORRectFactor.rootsC f R hR, ∀ t : ℝ, φ t ≠ ρ) {a b : ℝ} :
+    ContinuousOn (fun t => x ^ (φ t) * logDeriv (BMORRectFactor.zeroFactorC f R) (φ t))
+      (Set.uIcc a b) := by
+  have hcongr : ∀ t : ℝ, x ^ (φ t) * logDeriv (BMORRectFactor.zeroFactorC f R) (φ t)
+      = ∑ ρ ∈ BMORRectFactor.rootsC f R hR,
+          (BMORRectFactor.multC f R ρ : ℂ) * (x ^ (φ t) * (φ t - ρ)⁻¹) := by
+    intro t
+    rw [logDeriv_zeroFactorC_on df R hR (fun ρ hρ => hne ρ hρ t), Finset.mul_sum]
+    apply Finset.sum_congr rfl
+    intro ρ _
+    ring
+  have hcont : Continuous (fun t => ∑ ρ ∈ BMORRectFactor.rootsC f R hR,
+      (BMORRectFactor.multC f R ρ : ℂ) * (x ^ (φ t) * (φ t - ρ)⁻¹)) := by
+    apply continuous_finset_sum_r
+    intro ρ hρ
+    exact continuous_const.mul ((continuous_cpow_comp hx hφ).mul
+      (Continuous.inv₀ (hφ.sub continuous_const) (fun t => sub_ne_zero.mpr (hne ρ hρ t))))
+  exact hcont.continuousOn.congr (fun t _ => hcongr t)
+
+/-- The cofactor part is continuous on a leg inside the zero-free region. -/
+theorem continuousOn_cpow_logDeriv_cofactor {g : ℂ → ℂ} (hg : Differentiable ℂ g) {x : ℂ}
+    (hx : x ≠ 0) {φ : ℝ → ℂ} (hφ : Continuous φ) {R : Set ℂ}
+    (hR : ∀ t ∈ Set.uIcc a b, φ t ∈ R) (hne : ∀ z ∈ R, g z ≠ 0) :
+    ContinuousOn (fun t => x ^ (φ t) * logDeriv g (φ t)) (Set.uIcc a b) := by
+  apply ContinuousOn.mul (continuous_cpow_comp hx hφ).continuousOn
+  exact (differentiableOn_logDeriv hg hne).continuousOn.comp hφ.continuousOn hR
+
+end BMORProp21
+
+-- ==== BMORBndSet.lean ====
+
+
+/-!
+# The boundary of the rectangle as a single set
+
+Bundling the four legs into one set keeps the hypothesis count of the boundary lemmas at two,
+which matters because Lean's statement elaboration degrades sharply past roughly a dozen
+hypotheses.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+/-- The boundary of the rectangle, as a single set. -/
+def bndSet (x₁ x₂ y₁ y₂ : ℝ) : Set ℂ :=
+  {z | (z.im = y₁ ∧ z.re ∈ Set.uIcc x₁ x₂) ∨ (z.im = y₂ ∧ z.re ∈ Set.uIcc x₁ x₂)
+    ∨ (z.re = x₂ ∧ z.im ∈ Set.uIcc y₁ y₂) ∨ (z.re = x₁ ∧ z.im ∈ Set.uIcc y₁ y₂)}
+
+theorem mem_bndSet_H1 {x₁ x₂ y₁ y₂ t : ℝ} (ht : t ∈ Set.uIcc x₁ x₂) :
+    ((t:ℂ) + (y₁:ℂ)*I) ∈ bndSet x₁ x₂ y₁ y₂ := by
+  have him : ((t:ℂ) + (y₁:ℂ)*I).im = y₁ := by simp
+  have hre : ((t:ℂ) + (y₁:ℂ)*I).re ∈ Set.uIcc x₁ x₂ := by simpa using ht
+  simp only [bndSet, Set.mem_setOf_eq]
+  tauto
+
+theorem mem_bndSet_H2 {x₁ x₂ y₁ y₂ t : ℝ} (ht : t ∈ Set.uIcc x₁ x₂) :
+    ((t:ℂ) + (y₂:ℂ)*I) ∈ bndSet x₁ x₂ y₁ y₂ := by
+  have him : ((t:ℂ) + (y₂:ℂ)*I).im = y₂ := by simp
+  have hre : ((t:ℂ) + (y₂:ℂ)*I).re ∈ Set.uIcc x₁ x₂ := by simpa using ht
+  simp only [bndSet, Set.mem_setOf_eq]
+  tauto
+
+theorem mem_bndSet_V2 {x₁ x₂ y₁ y₂ t : ℝ} (ht : t ∈ Set.uIcc y₁ y₂) :
+    ((x₂:ℂ) + (t:ℂ)*I) ∈ bndSet x₁ x₂ y₁ y₂ := by
+  have hre : ((x₂:ℂ) + (t:ℂ)*I).re = x₂ := by simp
+  have him : ((x₂:ℂ) + (t:ℂ)*I).im ∈ Set.uIcc y₁ y₂ := by simpa using ht
+  simp only [bndSet, Set.mem_setOf_eq]
+  tauto
+
+theorem mem_bndSet_V1 {x₁ x₂ y₁ y₂ t : ℝ} (ht : t ∈ Set.uIcc y₁ y₂) :
+    ((x₁:ℂ) + (t:ℂ)*I) ∈ bndSet x₁ x₂ y₁ y₂ := by
+  have hre : ((x₁:ℂ) + (t:ℂ)*I).re = x₁ := by simp
+  have him : ((x₁:ℂ) + (t:ℂ)*I).im ∈ Set.uIcc y₁ y₂ := by simpa using ht
+  simp only [bndSet, Set.mem_setOf_eq]
+  tauto
+
+/-- Congruence of `bnd` from agreement on the boundary set. -/
+theorem bnd_congr_bnd {F G : ℂ → ℂ} {x₁ x₂ y₁ y₂ : ℝ}
+    (h : ∀ z ∈ bndSet x₁ x₂ y₁ y₂, F z = G z) :
+    bnd F x₁ x₂ y₁ y₂ = bnd G x₁ x₂ y₁ y₂ :=
+  bnd_congr4 (fun t ht => h _ (mem_bndSet_H1 ht)) (fun t ht => h _ (mem_bndSet_H2 ht))
+    (fun t ht => h _ (mem_bndSet_V2 ht)) (fun t ht => h _ (mem_bndSet_V1 ht))
+
+/-- Additivity of `bnd` from continuity on the boundary set. -/
+theorem bnd_add_bnd {F G : ℂ → ℂ} {x₁ x₂ y₁ y₂ : ℝ}
+    (hF : ContinuousOn F (bndSet x₁ x₂ y₁ y₂)) (hG : ContinuousOn G (bndSet x₁ x₂ y₁ y₂)) :
+    bnd (fun z => F z + G z) x₁ x₂ y₁ y₂
+      = bnd F x₁ x₂ y₁ y₂ + bnd G x₁ x₂ y₁ y₂ :=
+  bnd_add4
+    (hF.comp (cont_h y₁).continuousOn (fun t ht => mem_bndSet_H1 ht))
+    (hF.comp (cont_h y₂).continuousOn (fun t ht => mem_bndSet_H2 ht))
+    (hF.comp (cont_v x₂).continuousOn (fun t ht => mem_bndSet_V2 ht))
+    (hF.comp (cont_v x₁).continuousOn (fun t ht => mem_bndSet_V1 ht))
+    (hG.comp (cont_h y₁).continuousOn (fun t ht => mem_bndSet_H1 ht))
+    (hG.comp (cont_h y₂).continuousOn (fun t ht => mem_bndSet_H2 ht))
+    (hG.comp (cont_v x₂).continuousOn (fun t ht => mem_bndSet_V2 ht))
+    (hG.comp (cont_v x₁).continuousOn (fun t ht => mem_bndSet_V1 ht))
+
+end BMORProp21
+
+-- ==== BMORCrossZeroClean.lean ====
+
+
+/-!
+# The cross-zero identity, stated without proof-carrying data
+
+`rootsC`/`multC` carry a proof argument (`IsCompact R`) inside a `Finset`, which makes any
+statement mentioning them explode in `whnf`. These versions take the finset of zeros `σ` and the
+multiplicity function `m` explicitly, together with the factorisation identity.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+/-- On the boundary the logarithmic derivative of the zero factor is a sum of simple poles. -/
+theorem logDeriv_zeroFactorC_eq {f : ℂ → ℂ} (R : Set ℂ) {σ : Finset ℂ} {m : ℂ → ℕ}
+    (hP : ∀ z, BMORRectFactor.zeroFactorC f R z = ∏ a ∈ σ, (z-a)^(m a))
+    {z : ℂ} (hz : ∀ a ∈ σ, z ≠ a) :
+    logDeriv (BMORRectFactor.zeroFactorC f R) z = ∑ a ∈ σ, (m a : ℂ) / (z - a) := by
+  have hfun : BMORRectFactor.zeroFactorC f R = (fun w : ℂ => ∏ a ∈ σ, (w-a)^(m a)) :=
+    funext hP
+  have hlhs : logDeriv (fun w : ℂ => ∏ a ∈ σ, (w-a)^(m a)) z
+      = logDeriv (BMORRectFactor.zeroFactorC f R) z := by
+    congr 1
+    exact hfun.symm
+  rw [← hlhs]
+  exact logDeriv_prod_pow hz
+
+/-- The zero-factor part of the cross-zero identity. -/
+theorem bnd_cpow_logDeriv_zeroFactorC_eq {f : ℂ → ℂ} {x : ℂ} (hx : x ≠ 0)
+    {R : Set ℂ} {σ : Finset ℂ} {m : ℂ → ℕ}
+    (hP : ∀ z, BMORRectFactor.zeroFactorC f R z = ∏ a ∈ σ, (z-a)^(m a))
+    {x₁ x₂ y₁ y₂ : ℝ}
+    (hin : ∀ ρ ∈ σ, x₁ < ρ.re ∧ ρ.re < x₂ ∧ y₁ < ρ.im ∧ ρ.im < y₂) :
+    bnd (fun s => x ^ s * logDeriv (BMORRectFactor.zeroFactorC f R) s) x₁ x₂ y₁ y₂
+      = (2 * (Real.pi : ℂ) * I) * ∑ ρ ∈ σ, (m ρ : ℂ) * x ^ ρ := by
+  have key : ∀ z : ℂ, (∀ a ∈ σ, z ≠ a) →
+      x ^ z * logDeriv (BMORRectFactor.zeroFactorC f R) z
+        = ∑ a ∈ σ, (m a : ℂ) * (x ^ z * (z - a)⁻¹) := by
+    intro z hz
+    rw [logDeriv_zeroFactorC_eq R hP hz, Finset.mul_sum]
+    apply Finset.sum_congr rfl
+    intro a _
+    ring
+  have hne1 : ∀ a ∈ σ, ∀ t : ℝ, ((t:ℂ) + (y₁:ℂ)*I) ≠ a := by
+    intro a ha t h
+    have him : y₁ = a.im := by simpa using congrArg Complex.im h
+    linarith [(hin a ha).2.2.1]
+  have hne2 : ∀ a ∈ σ, ∀ t : ℝ, ((t:ℂ) + (y₂:ℂ)*I) ≠ a := by
+    intro a ha t h
+    have him : y₂ = a.im := by simpa using congrArg Complex.im h
+    linarith [(hin a ha).2.2.2]
+  have hne3 : ∀ a ∈ σ, ∀ t : ℝ, ((x₂:ℂ) + (t:ℂ)*I) ≠ a := by
+    intro a ha t h
+    have hre : x₂ = a.re := by simpa using congrArg Complex.re h
+    linarith [(hin a ha).2.1]
+  have hne4 : ∀ a ∈ σ, ∀ t : ℝ, ((x₁:ℂ) + (t:ℂ)*I) ≠ a := by
+    intro a ha t h
+    have hre : x₁ = a.re := by simpa using congrArg Complex.re h
+    linarith [(hin a ha).1]
+  have hcongr : bnd (fun s => x ^ s * logDeriv (BMORRectFactor.zeroFactorC f R) s)
+        x₁ x₂ y₁ y₂
+      = bnd (fun s => ∑ a ∈ σ, (m a : ℂ) * (x ^ s * (s - a)⁻¹)) x₁ x₂ y₁ y₂ :=
+    bnd_congr4 (G := fun s => ∑ a ∈ σ, (m a : ℂ) * (x ^ s * (s - a)⁻¹))
+      (fun t _ => key _ (fun a ha => hne1 a ha t))
+      (fun t _ => key _ (fun a ha => hne2 a ha t))
+      (fun t _ => key _ (fun a ha => hne3 a ha t))
+      (fun t _ => key _ (fun a ha => hne4 a ha t))
+  rw [hcongr]
+  exact bnd_sum_poles hx hin
+
+
+/-- The principal part is continuous on a leg that avoids the poles (clean form). -/
+theorem continuousOn_cpow_logDerivP_eq {f : ℂ → ℂ} {R : Set ℂ} {σ : Finset ℂ} {m : ℂ → ℕ}
+    (hP : ∀ z, BMORRectFactor.zeroFactorC f R z = ∏ a ∈ σ, (z-a)^(m a))
+    {x : ℂ} (hx : x ≠ 0) {φ : ℝ → ℂ} (hφ : Continuous φ)
+    (hne : ∀ a ∈ σ, ∀ t : ℝ, φ t ≠ a) {a b : ℝ} :
+    ContinuousOn (fun t => x ^ (φ t) * logDeriv (BMORRectFactor.zeroFactorC f R) (φ t))
+      (Set.uIcc a b) := by
+  have hcongr : ∀ t : ℝ, x ^ (φ t) * logDeriv (BMORRectFactor.zeroFactorC f R) (φ t)
+      = ∑ ρ ∈ σ, (m ρ : ℂ) * (x ^ (φ t) * (φ t - ρ)⁻¹) := by
+    intro t
+    rw [logDeriv_zeroFactorC_eq R hP (fun ρ hρ => hne ρ hρ t), Finset.mul_sum]
+    apply Finset.sum_congr rfl
+    intro ρ _
+    ring
+  have hcont : Continuous (fun t => ∑ ρ ∈ σ, (m ρ : ℂ) * (x ^ (φ t) * (φ t - ρ)⁻¹)) := by
+    apply continuous_finset_sum_r
+    intro ρ hρ
+    exact continuous_const.mul ((continuous_cpow_comp hx hφ).mul
+      (Continuous.inv₀ (hφ.sub continuous_const) (fun t => sub_ne_zero.mpr (hne ρ hρ t))))
+  exact hcont.continuousOn.congr (fun t _ => hcongr t)
+end BMORProp21
+
+-- ==== BMORCrossZeroK.lean ====
+
+
+/-!
+# Cross-zero lemmas with the weight `x^s` abstracted into a function parameter
+
+`x ^ s` for `x s : ℂ` triggers a `HPow ℂ ℂ ℂ` instance search that loops in `whnf` in large
+contexts. Keeping the weight as an opaque `K : ℂ → ℂ` with `hK : ∀ s, K s = Complex.cpow x s`
+avoids the problem entirely.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+/-- `bnd_sum_poles` with an abstract weight. -/
+theorem bnd_sum_poles_K {x : ℂ} (hx : x ≠ 0) {σ : Finset ℂ} {m : ℂ → ℕ} {K : ℂ → ℂ}
+    (hK : ∀ s : ℂ, K s = x ^ s)
+    {x₁ x₂ y₁ y₂ : ℝ}
+    (hin : ∀ ρ ∈ σ, x₁ < ρ.re ∧ ρ.re < x₂ ∧ y₁ < ρ.im ∧ ρ.im < y₂) :
+    bnd (fun s => ∑ ρ ∈ σ, (m ρ : ℂ) * (K s * (s - ρ)⁻¹)) x₁ x₂ y₁ y₂
+      = (2 * (Real.pi : ℂ) * I) * ∑ ρ ∈ σ, (m ρ : ℂ) * K ρ := by
+  have hcongr : bnd (fun s => ∑ ρ ∈ σ, (m ρ : ℂ) * (K s * (s - ρ)⁻¹)) x₁ x₂ y₁ y₂
+      = bnd (fun s => ∑ ρ ∈ σ, (m ρ : ℂ) * (x ^ s * (s - ρ)⁻¹)) x₁ x₂ y₁ y₂ := by
+    refine bnd_congr4 (G := fun s => ∑ ρ ∈ σ, (m ρ : ℂ) * (x ^ s * (s - ρ)⁻¹))
+      ?_ ?_ ?_ ?_
+    all_goals
+      intro t _
+      simp only [hK]
+  rw [hcongr, bnd_sum_poles hx hin]
+  congr 1
+  exact Finset.sum_congr rfl (fun ρ _ => by simp only [hK])
+
+/-- `bnd_cpow_logDeriv_zeroFactorC_eq` with an abstract weight. -/
+theorem bnd_cpow_logDeriv_zeroFactorC_eq_K {f : ℂ → ℂ} {x : ℂ} (hx : x ≠ 0)
+    {R : Set ℂ} {σ : Finset ℂ} {m : ℂ → ℕ} {K : ℂ → ℂ}
+    (hK : ∀ s : ℂ, K s = x ^ s)
+    (hP : ∀ z, BMORRectFactor.zeroFactorC f R z = ∏ a ∈ σ, (z-a)^(m a))
+    {x₁ x₂ y₁ y₂ : ℝ}
+    (hin : ∀ ρ ∈ σ, x₁ < ρ.re ∧ ρ.re < x₂ ∧ y₁ < ρ.im ∧ ρ.im < y₂) :
+    bnd (fun s => K s * logDeriv (BMORRectFactor.zeroFactorC f R) s) x₁ x₂ y₁ y₂
+      = (2 * (Real.pi : ℂ) * I) * ∑ ρ ∈ σ, (m ρ : ℂ) * K ρ := by
+  have hcongr : bnd (fun s => K s * logDeriv (BMORRectFactor.zeroFactorC f R) s)
+        x₁ x₂ y₁ y₂
+      = bnd (fun s => x ^ s * logDeriv (BMORRectFactor.zeroFactorC f R) s) x₁ x₂ y₁ y₂ := by
+    refine bnd_congr4
+      (G := fun s => x ^ s * logDeriv (BMORRectFactor.zeroFactorC f R) s) ?_ ?_ ?_ ?_
+    all_goals
+      intro t _
+      simp only [hK]
+  rw [hcongr, bnd_cpow_logDeriv_zeroFactorC_eq hx hP hin]
+  congr 1
+  exact Finset.sum_congr rfl (fun ρ _ => by simp only [hK])
+
+
+/-- `bnd_cpow_logDeriv_cofactor` with an abstract weight. -/
+theorem bnd_cpow_logDeriv_cofactor_K {g : ℂ → ℂ} (hg : Differentiable ℂ g) {x : ℂ} (hx : x ≠ 0)
+    {K : ℂ → ℂ} (hK : ∀ s : ℂ, K s = x ^ s)
+    {x₁ x₂ y₁ y₂ : ℝ} (hle_x : x₁ ≤ x₂) (hle_y : y₁ ≤ y₂)
+    (hne : ∀ z ∈ rectSet x₁ x₂ y₁ y₂, g z ≠ 0) :
+    bnd (fun s => K s * logDeriv g s) x₁ x₂ y₁ y₂ = 0 := by
+  have hcongr : bnd (fun s => K s * logDeriv g s) x₁ x₂ y₁ y₂
+      = bnd (fun s => x ^ s * logDeriv g s) x₁ x₂ y₁ y₂ := by
+    refine bnd_congr4 (G := fun s => x ^ s * logDeriv g s) ?_ ?_ ?_ ?_
+    all_goals
+      intro t _
+      simp only [hK]
+  rw [hcongr]
+  exact bnd_cpow_logDeriv_cofactor hg hx hle_x hle_y hne
+end BMORProp21
+
+-- ==== BMORCrossZeroBnd.lean ====
+
+
+/-!
+# The cross-zero identity, with the boundary packaged as one set
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+/-- Points of the boundary are not zeros of the zero factor. -/
+theorem bndSet_ne_roots {f : ℂ → ℂ} {R : Set ℂ} {σ : Finset ℂ} {m : ℂ → ℕ}
+    (hP : ∀ z, BMORRectFactor.zeroFactorC f R z = ∏ a ∈ σ, (z-a)^(m a))
+    {x₁ x₂ y₁ y₂ : ℝ} (hR : R = rectSet x₁ x₂ y₁ y₂)
+    (hin : ∀ ρ ∈ σ, x₁ < ρ.re ∧ ρ.re < x₂ ∧ y₁ < ρ.im ∧ ρ.im < y₂) :
+    ∀ z ∈ bndSet x₁ x₂ y₁ y₂, ∀ a ∈ σ, z ≠ a := by
+  intro z hz a ha h
+  subst hR
+  rcases hz with ⟨h1, h2⟩ | ⟨h1, h2⟩ | ⟨h1, h2⟩ | ⟨h1, h2⟩
+  · have him : a.im = y₁ := by rw [← h, h1]
+    linarith [(hin a ha).2.2.1]
+  · have him : a.im = y₂ := by rw [← h, h1]
+    linarith [(hin a ha).2.2.2]
+  · have hre : a.re = x₂ := by rw [← h, h1]
+    linarith [(hin a ha).2.1]
+  · have hre : a.re = x₁ := by rw [← h, h1]
+    linarith [(hin a ha).1]
+
+
+/-- Continuity of the principal part on the boundary. -/
+theorem continuousOn_K_logDerivP {f : ℂ → ℂ} (df : Differentiable ℂ f) {R : Set ℂ}
+    (hR : IsCompact R) {σ : Finset ℂ} {m : ℂ → ℕ}
+    (hP : ∀ z, BMORRectFactor.zeroFactorC f R z = ∏ a ∈ σ, (z-a)^(m a))
+    {x₁ x₂ y₁ y₂ : ℝ} (hrect : R = rectSet x₁ x₂ y₁ y₂)
+    (hin : ∀ ρ ∈ σ, x₁ < ρ.re ∧ ρ.re < x₂ ∧ y₁ < ρ.im ∧ ρ.im < y₂)
+    {K : ℂ → ℂ} (hKc : Continuous K) :
+    ContinuousOn (fun s => K s * logDeriv (BMORRectFactor.zeroFactorC f R) s)
+      (bndSet x₁ x₂ y₁ y₂) := by
+  have hPdiff : Differentiable ℂ (BMORRectFactor.zeroFactorC f R) :=
+    BMORRectFactor.differentiable_zeroFactorC df R hR
+  intro z hz
+  have hzne := bndSet_ne_roots hP hrect hin z hz
+  have hPne : BMORRectFactor.zeroFactorC f R z ≠ 0 := by
+    rw [hP z]
+    exact Finset.prod_ne_zero_iff.mpr (fun a ha => pow_ne_zero _ (sub_ne_zero.mpr (hzne a ha)))
+  have hdiff : DifferentiableAt ℂ (logDeriv (BMORRectFactor.zeroFactorC f R)) z :=
+    (hPdiff.deriv.differentiableAt).div hPdiff.differentiableAt hPne
+  exact (hKc.continuousAt.mul hdiff.continuousAt).continuousWithinAt
+end BMORProp21
+
+-- ==== BMORCrossZeroMain.lean ====
+
+
+/-!
+# The cross-zero identity
+
+`bnd (fun s => K s · (f'/f)(s)) = 2πi · Σ_ρ m_ρ · K ρ` for `K s = x^s`, `f` entire, `f = P·g` with
+`P` the zero factor and `g` zero-free on the rectangle.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+/-- The cross-zero identity. -/
+theorem cross_zero {f g : ℂ → ℂ} (df : Differentiable ℂ f) (hg : Differentiable ℂ g)
+    {x : ℂ} (hx : x ≠ 0) {K : ℂ → ℂ} (hK : ∀ s : ℂ, K s = x ^ s)
+    {R : Set ℂ} (hR : IsCompact R) {x₁ x₂ y₁ y₂ : ℝ} (hrect : R = rectSet x₁ x₂ y₁ y₂)
+    {σ : Finset ℂ} {m : ℂ → ℕ}
+    (hP : ∀ z, BMORRectFactor.zeroFactorC f R z = ∏ a ∈ σ, (z-a)^(m a))
+    (hfg : ∀ z, f z = BMORRectFactor.zeroFactorC f R z * g z)
+    (hgne : ∀ z ∈ rectSet x₁ x₂ y₁ y₂, g z ≠ 0)
+    (hin : ∀ ρ ∈ σ, x₁ < ρ.re ∧ ρ.re < x₂ ∧ y₁ < ρ.im ∧ ρ.im < y₂)
+    (hle_x : x₁ ≤ x₂) (hle_y : y₁ ≤ y₂) :
+    bnd (fun s => K s * logDeriv f s) x₁ x₂ y₁ y₂
+      = (2 * (Real.pi : ℂ) * I) * ∑ ρ ∈ σ, (m ρ : ℂ) * K ρ := by
+  have hKc : Continuous K := by
+    have h : K = fun s => x ^ s := funext hK
+    rw [h]
+    exact (differentiable_cpow_const hx).continuous
+  have hPne : ∀ z ∈ bndSet x₁ x₂ y₁ y₂, BMORRectFactor.zeroFactorC f R z ≠ 0 := by
+    intro z hz
+    have hzne := bndSet_ne_roots hP hrect hin z hz
+    rw [hP z]
+    exact Finset.prod_ne_zero_iff.mpr (fun a ha => pow_ne_zero _ (sub_ne_zero.mpr (hzne a ha)))
+  have hlog : ∀ z ∈ bndSet x₁ x₂ y₁ y₂,
+      K z * logDeriv f z
+        = K z * logDeriv (BMORRectFactor.zeroFactorC f R) z + K z * logDeriv g z := by
+    intro z hz
+    have hbnd : z ∈ rectSet x₁ x₂ y₁ y₂ := by
+      rcases hz with ⟨h1, h2⟩ | ⟨h1, h2⟩ | ⟨h1, h2⟩ | ⟨h1, h2⟩
+      · have h2' : z.im ∈ Set.uIcc y₁ y₂ := by rw [h1]; exact Set.left_mem_uIcc
+        exact ⟨h2, h2'⟩
+      · have h2' : z.im ∈ Set.uIcc y₁ y₂ := by rw [h1]; exact Set.right_mem_uIcc
+        exact ⟨h2, h2'⟩
+      · have h2' : z.re ∈ Set.uIcc x₁ x₂ := by rw [h1]; exact Set.right_mem_uIcc
+        exact ⟨h2', h2⟩
+      · have h2' : z.re ∈ Set.uIcc x₁ x₂ := by rw [h1]; exact Set.left_mem_uIcc
+        exact ⟨h2', h2⟩
+    have h1 := hPne z hz
+    have h2 : g z ≠ 0 := hgne z hbnd
+    rw [BMORRectFactor.logDeriv_factor df R hR hfg hg h1 h2]
+    ring
+  have hPc : ContinuousOn (fun s => K s * logDeriv (BMORRectFactor.zeroFactorC f R) s)
+      (bndSet x₁ x₂ y₁ y₂) :=
+    continuousOn_K_logDerivP df hR hP hrect hin hKc
+  have hGc : ContinuousOn (fun s => K s * logDeriv g s) (bndSet x₁ x₂ y₁ y₂) := by
+    intro z hz
+    have hbnd : z ∈ rectSet x₁ x₂ y₁ y₂ := by
+      rcases hz with ⟨h1, h2⟩ | ⟨h1, h2⟩ | ⟨h1, h2⟩ | ⟨h1, h2⟩
+      · have h2' : z.im ∈ Set.uIcc y₁ y₂ := by rw [h1]; exact Set.left_mem_uIcc
+        exact ⟨h2, h2'⟩
+      · have h2' : z.im ∈ Set.uIcc y₁ y₂ := by rw [h1]; exact Set.right_mem_uIcc
+        exact ⟨h2, h2'⟩
+      · have h2' : z.re ∈ Set.uIcc x₁ x₂ := by rw [h1]; exact Set.right_mem_uIcc
+        exact ⟨h2', h2⟩
+      · have h2' : z.re ∈ Set.uIcc x₁ x₂ := by rw [h1]; exact Set.left_mem_uIcc
+        exact ⟨h2', h2⟩
+    have hgd : DifferentiableAt ℂ (logDeriv g) z :=
+      (hg.deriv.differentiableAt).div hg.differentiableAt (hgne z hbnd)
+    exact (hKc.continuousAt.mul hgd.continuousAt).continuousWithinAt
+  rw [bnd_congr_bnd (G := fun s => K s * logDeriv (BMORRectFactor.zeroFactorC f R) s
+    + K s * logDeriv g s) hlog]
+  rw [bnd_add_bnd hPc hGc]
+  rw [bnd_cpow_logDeriv_zeroFactorC_eq_K hx hK hP hin,
+    bnd_cpow_logDeriv_cofactor_K hg hx hK hle_x hle_y hgne, add_zero]
+
+end BMORProp21
+-- ==== end analytic infrastructure block ====
+
 
 section
 namespace BMORProgression
