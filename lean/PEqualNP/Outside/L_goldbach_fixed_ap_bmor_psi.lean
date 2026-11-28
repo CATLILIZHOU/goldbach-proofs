@@ -60,7 +60,7 @@ import Mathlib.Analysis.Calculus.LogDeriv
 import Mathlib.Analysis.Meromorphic.FactorizedRational
 import Mathlib.MeasureTheory.Integral.IntervalIntegral.FundThmCalculus
 
--- ==== analytic infrastructure block (BMORAnalyticBlock, 150 lemmas) ====
+-- ==== analytic infrastructure block (BMORAnalyticBlock, 161 lemmas) ====
 
 
 -- ==== BMORRectFactor.lean ====
@@ -3947,6 +3947,359 @@ theorem norm_zero_sum_div_le {f g : ℂ → ℂ} (df : Differentiable ℂ f)
   rw [norm_two_pi_I_mul] at hb
   rw [le_div_iff₀ (by positivity : (0:ℝ) < 2 * Real.pi)]
   linarith
+
+end BMORProp21
+
+-- ==== BMORInvBound.lean ====
+
+
+/-!
+# Bounding `1/s` on the rectangle
+
+On the contour `Re s ≥ x₁ > 0`, so `‖1/s‖ ≤ 1/x₁`. This is the factor that carries the weight
+`x^s/s` over from the estimates for `x^s`.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+/-- `‖s⁻¹‖ ≤ c⁻¹` when `Re s ≥ c > 0`. -/
+theorem norm_inv_le_of_re_ge {s : ℂ} {c : ℝ} (hc : 0 < c) (h : c ≤ s.re) :
+    ‖s⁻¹‖ ≤ c⁻¹ := by
+  have hnorm : c ≤ ‖s‖ := le_trans h (Complex.re_le_norm s)
+  have hpos : 0 < ‖s‖ := lt_of_lt_of_le hc hnorm
+  rw [norm_inv]
+  exact (inv_le_inv₀ hpos hc).mpr hnorm
+
+/-- `‖z/s‖ ≤ ‖z‖·c⁻¹` when `Re s ≥ c > 0`. -/
+theorem norm_div_le_of_re_ge {z s : ℂ} {c : ℝ} (hc : 0 < c) (h : c ≤ s.re) :
+    ‖z / s‖ ≤ ‖z‖ * c⁻¹ := by
+  rw [div_eq_mul_inv, norm_mul]
+  exact mul_le_mul_of_nonneg_left (norm_inv_le_of_re_ge hc h) (norm_nonneg z)
+
+
+/-- Integrating the `1/s` factor. -/
+theorem integral_norm_div_le {F φ : ℝ → ℂ} {c : ℝ} (hc : 0 < c) {a b : ℝ} (hab : a ≤ b)
+    (hFi : IntervalIntegrable (fun t => ‖F t‖) volume a b)
+    (hGi : IntervalIntegrable (fun t => ‖F t / φ t‖) volume a b)
+    (hre : ∀ t ∈ Set.uIcc a b, c ≤ (φ t).re) :
+    ∫ t in a..b, ‖F t / φ t‖ ≤ c⁻¹ * ∫ t in a..b, ‖F t‖ := by
+  have h1 : ∫ t in a..b, ‖F t / φ t‖ ≤ ∫ t in a..b, ‖F t‖ * c⁻¹ := by
+    apply intervalIntegral.integral_mono_on hab hGi (hFi.mul_const _)
+    intro t ht
+    exact norm_div_le_of_re_ge hc (hre t (by rw [Set.uIcc_of_le hab]; exact ht))
+  rw [intervalIntegral.integral_mul_const] at h1
+  calc ∫ t in a..b, ‖F t / φ t‖ ≤ (∫ t in a..b, ‖F t‖) * c⁻¹ := h1
+    _ = c⁻¹ * ∫ t in a..b, ‖F t‖ := by ring
+end BMORProp21
+
+-- ==== BMORLegBoundDiv.lean ====
+
+
+/-!
+# The leg bound with the weight `1/s`
+
+`∫_leg ‖(f'/f)/s‖ ≤ x₁⁻¹·(Σ_ρ m_ρ·L/δ_ρ + L·C_g)`.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+set_option maxHeartbeats 800000 in
+/-- The leg bound for `(f'/f)/s`. -/
+theorem leg_bound_div {f g : ℂ → ℂ} (df : Differentiable ℂ f) (hg : Differentiable ℂ g)
+    {R : Set ℂ} (hR : IsCompact R) {σ : Finset ℂ} {m : ℂ → ℕ}
+    (D : ContourData f g R σ m) {φ : ℝ → ℂ} (hφc : Continuous φ) {a b : ℝ} (hab : a ≤ b)
+    (hmaps : ∀ t ∈ Set.uIcc a b, φ t ∈ R)
+    {c : ℝ} (hc : 0 < c) (hre : ∀ t ∈ Set.uIcc a b, c ≤ (φ t).re)
+    (hGi : IntervalIntegrable (fun t => ‖logDeriv f (φ t) / (φ t)‖) volume a b)
+    (hFi : IntervalIntegrable (fun t => ‖logDeriv f (φ t)‖) volume a b) :
+    ∫ t in a..b, ‖logDeriv f (φ t) / (φ t)‖
+      ≤ c⁻¹ * ((∑ ρ ∈ σ, (m ρ : ℝ) * ((b - a) * (D.delta ρ)⁻¹)) + (b - a) * D.Cg) := by
+  have h1 := integral_norm_div_le (F := fun t => logDeriv f (φ t)) (φ := φ) hc hab hFi hGi hre
+  have h2 := leg_bound df hg hR D hφc hab hmaps
+  calc ∫ t in a..b, ‖logDeriv f (φ t) / (φ t)‖
+      ≤ c⁻¹ * ∫ t in a..b, ‖logDeriv f (φ t)‖ := h1
+    _ ≤ c⁻¹ * ((∑ ρ ∈ σ, (m ρ : ℝ) * ((b - a) * (D.delta ρ)⁻¹)) + (b - a) * D.Cg) := by
+        apply mul_le_mul_of_nonneg_left h2
+        positivity
+
+end BMORProp21
+
+-- ==== BMORContDiv.lean ====
+
+
+/-!
+# Continuity of `(f'/f)/s` along a leg
+
+Needed to feed the S5 estimate (`norm_bnd_cpow_le_on`) with the weight `1/s`.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+/-- Continuity of `(f'/f)/s` along a leg. -/
+theorem continuousOn_logDeriv_div {f : ℂ → ℂ} (df : Differentiable ℂ f) {φ : ℝ → ℂ}
+    (hφc : Continuous φ) {a b : ℝ}
+    (hne : ∀ t ∈ Set.uIcc a b, f (φ t) ≠ 0)
+    (hφne : ∀ t ∈ Set.uIcc a b, φ t ≠ 0) :
+    ContinuousOn (fun t => logDeriv f (φ t) / (φ t)) (Set.uIcc a b) := by
+  apply ContinuousOn.div
+  · intro t ht
+    exact (continuousAt_logDeriv df (hne t ht)).comp_continuousWithinAt
+      hφc.continuousAt.continuousWithinAt
+  · exact hφc.continuousOn
+  · exact hφne
+
+
+/-- The arithmetic of the four legs with the `1/s` factor. -/
+theorem four_leg_arith (S C Lh Lv c : ℝ) :
+    c⁻¹ * (Lh * S + Lh * C) + c⁻¹ * (Lh * S + Lh * C)
+        + (c⁻¹ * (Lv * S + Lv * C) + c⁻¹ * (Lv * S + Lv * C))
+      = 2 * c⁻¹ * ((Lh + Lv) * (S + C)) := by ring
+
+/-- The leg bound for `(f'/f)/s`, with the integrability discharged internally. -/
+theorem leg_bound_div2 {f g : ℂ → ℂ} (df : Differentiable ℂ f) (hg : Differentiable ℂ g)
+    {R : Set ℂ} (hR : IsCompact R) {σ : Finset ℂ} {m : ℂ → ℕ}
+    (D : ContourData f g R σ m) {φ : ℝ → ℂ} (hφc : Continuous φ) {a b : ℝ} (hab : a ≤ b)
+    (hmaps : ∀ t ∈ Set.uIcc a b, φ t ∈ R)
+    {c : ℝ} (hc : 0 < c) (hre : ∀ t ∈ Set.uIcc a b, c ≤ (φ t).re)
+    (hne : ∀ t ∈ Set.uIcc a b, f (φ t) ≠ 0) (hφne : ∀ t ∈ Set.uIcc a b, φ t ≠ 0) :
+    ∫ t in a..b, ‖logDeriv f (φ t) / (φ t)‖
+      ≤ c⁻¹ * ((∑ ρ ∈ σ, (m ρ : ℝ) * ((b - a) * (D.delta ρ)⁻¹)) + (b - a) * D.Cg) := by
+  have hcontF : ContinuousOn (fun t => ‖logDeriv f (φ t)‖) (Set.uIcc a b) := by
+    intro t ht
+    exact ((continuousAt_logDeriv df (hne t ht)).comp_continuousWithinAt
+      hφc.continuousAt.continuousWithinAt).norm
+  have hFi : IntervalIntegrable (fun t => ‖logDeriv f (φ t)‖) volume a b :=
+    hcontF.intervalIntegrable
+  have hGi : IntervalIntegrable (fun t => ‖logDeriv f (φ t) / (φ t)‖) volume a b :=
+    (continuousOn_logDeriv_div df hφc hne hφne).norm.intervalIntegrable
+  exact leg_bound_div (f := f) (g := g) (R := R) (σ := σ) (m := m) (φ := φ) (a := a) (b := b) (c := c)
+    df hg hR D hφc hab hmaps hc hre hGi hFi
+end BMORProp21
+
+-- ==== BMORFourLegDiv.lean ====
+
+
+/-!
+# The four legs with the weight `1/s`, summed
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+set_option maxHeartbeats 800000 in
+/-- The sum of the four leg integrals of `‖(f'/f)/s‖`. -/
+theorem four_leg_integral_div_le {f g : ℂ → ℂ} (df : Differentiable ℂ f)
+    (hg : Differentiable ℂ g) {R : Set ℂ} (hR : IsCompact R) {σ : Finset ℂ} {m : ℂ → ℕ}
+    (D : ContourData f g R σ m)
+    {x₁ x₂ y₁ y₂ : ℝ} (hx12 : x₁ ≤ x₂) (hy12 : y₁ ≤ y₂) (hx1 : 0 < x₁)
+    (hrect : R = rectSet x₁ x₂ y₁ y₂)
+    (h0 : 0 ∉ rectSet x₁ x₂ y₁ y₂) :
+    (∫ t in x₁..x₂, ‖logDeriv f ((t:ℂ) + (y₁:ℂ)*I) / (((t:ℂ) + (y₁:ℂ)*I))‖)
+      + (∫ t in x₁..x₂, ‖logDeriv f ((t:ℂ) + (y₂:ℂ)*I) / (((t:ℂ) + (y₂:ℂ)*I))‖)
+      + (∫ t in y₁..y₂, ‖logDeriv f ((x₂:ℂ) + (t:ℂ)*I) / (((x₂:ℂ) + (t:ℂ)*I))‖)
+      + (∫ t in y₁..y₂, ‖logDeriv f ((x₁:ℂ) + (t:ℂ)*I) / (((x₁:ℂ) + (t:ℂ)*I))‖)
+      ≤ 2 * x₁⁻¹ * ((x₂ - x₁) + (y₂ - y₁)) *
+          ((∑ ρ ∈ σ, (m ρ : ℝ) * (D.delta ρ)⁻¹) + D.Cg) := by
+  have hmemH1 : ∀ t ∈ Set.uIcc x₁ x₂, ((t:ℂ) + (y₁:ℂ)*I) ∈ R := by
+    intro t ht
+    rw [hrect]
+    exact ⟨by simpa using ht, by simpa using (Set.left_mem_uIcc : y₁ ∈ Set.uIcc y₁ y₂)⟩
+  have hmemH2 : ∀ t ∈ Set.uIcc x₁ x₂, ((t:ℂ) + (y₂:ℂ)*I) ∈ R := by
+    intro t ht
+    rw [hrect]
+    exact ⟨by simpa using ht, by simpa using (Set.right_mem_uIcc : y₂ ∈ Set.uIcc y₁ y₂)⟩
+  have hmemV2 : ∀ t ∈ Set.uIcc y₁ y₂, ((x₂:ℂ) + (t:ℂ)*I) ∈ R := by
+    intro t ht
+    rw [hrect]
+    exact ⟨by simpa using (Set.right_mem_uIcc : x₂ ∈ Set.uIcc x₁ x₂), by simpa using ht⟩
+  have hmemV1 : ∀ t ∈ Set.uIcc y₁ y₂, ((x₁:ℂ) + (t:ℂ)*I) ∈ R := by
+    intro t ht
+    rw [hrect]
+    exact ⟨by simpa using (Set.left_mem_uIcc : x₁ ∈ Set.uIcc x₁ x₂), by simpa using ht⟩
+  have h0H1 : ∀ t ∈ Set.uIcc x₁ x₂, ((t:ℂ) + (y₁:ℂ)*I) ≠ 0 := by
+    intro t ht h
+    exact h0 (h ▸ ⟨by simpa using ht, by simpa using (Set.left_mem_uIcc : y₁ ∈ Set.uIcc y₁ y₂)⟩)
+  have h0H2 : ∀ t ∈ Set.uIcc x₁ x₂, ((t:ℂ) + (y₂:ℂ)*I) ≠ 0 := by
+    intro t ht h
+    exact h0 (h ▸ ⟨by simpa using ht, by simpa using (Set.right_mem_uIcc : y₂ ∈ Set.uIcc y₁ y₂)⟩)
+  have h0V2 : ∀ t ∈ Set.uIcc y₁ y₂, ((x₂:ℂ) + (t:ℂ)*I) ≠ 0 := by
+    intro t ht h
+    exact h0 (h ▸ ⟨by simpa using (Set.right_mem_uIcc : x₂ ∈ Set.uIcc x₁ x₂), by simpa using ht⟩)
+  have h0V1 : ∀ t ∈ Set.uIcc y₁ y₂, ((x₁:ℂ) + (t:ℂ)*I) ≠ 0 := by
+    intro t ht h
+    exact h0 (h ▸ ⟨by simpa using (Set.left_mem_uIcc : x₁ ∈ Set.uIcc x₁ x₂), by simpa using ht⟩)
+  have hreH1 : ∀ t ∈ Set.uIcc x₁ x₂, x₁ ≤ (((t:ℂ) + (y₁:ℂ)*I)).re := by
+    intro t ht
+    have ht' : t ∈ Set.Icc x₁ x₂ := by rw [← Set.uIcc_of_le hx12]; exact ht
+    have hle : x₁ ≤ t := (Set.mem_Icc.mp ht').1
+    simpa using hle
+  have hreH2 : ∀ t ∈ Set.uIcc x₁ x₂, x₁ ≤ (((t:ℂ) + (y₂:ℂ)*I)).re := by
+    intro t ht
+    have ht' : t ∈ Set.Icc x₁ x₂ := by rw [← Set.uIcc_of_le hx12]; exact ht
+    have hle : x₁ ≤ t := (Set.mem_Icc.mp ht').1
+    simpa using hle
+  have hreV2 : ∀ t ∈ Set.uIcc y₁ y₂, x₁ ≤ (((x₂:ℂ) + (t:ℂ)*I)).re := by
+    intro t ht
+    have : (((x₂:ℂ) + (t:ℂ)*I)).re = x₂ := by simp
+    rw [this]
+    exact hx12
+  have hreV1 : ∀ t ∈ Set.uIcc y₁ y₂, x₁ ≤ (((x₁:ℂ) + (t:ℂ)*I)).re := by
+    intro t ht
+    have : (((x₁:ℂ) + (t:ℂ)*I)).re = x₁ := by simp
+    rw [this]
+  have b1 := leg_bound_div2 df hg hR D (cont_h y₁) hx12 hmemH1 hx1 hreH1
+    (fun t ht => D.hne _ (hmemH1 t ht)) h0H1
+  have b2 := leg_bound_div2 df hg hR D (cont_h y₂) hx12 hmemH2 hx1 hreH2
+    (fun t ht => D.hne _ (hmemH2 t ht)) h0H2
+  have b3 := leg_bound_div2 df hg hR D (cont_v x₂) hy12 hmemV2 hx1 hreV2
+    (fun t ht => D.hne _ (hmemV2 t ht)) h0V2
+  have b4 := leg_bound_div2 df hg hR D (cont_v x₁) hy12 hmemV1 hx1 hreV1
+    (fun t ht => D.hne _ (hmemV1 t ht)) h0V1
+  have hS : ∀ L : ℝ, (∑ ρ ∈ σ, (m ρ : ℝ) * (L * (D.delta ρ)⁻¹))
+      = L * (∑ ρ ∈ σ, (m ρ : ℝ) * (D.delta ρ)⁻¹) := by
+    intro L
+    rw [Finset.mul_sum]
+    exact Finset.sum_congr rfl (fun ρ _ => by ring)
+  rw [hS] at b1 b2 b3 b4
+  have harith := four_leg_arith (∑ ρ ∈ σ, (m ρ : ℝ) * (D.delta ρ)⁻¹) D.Cg
+    (x₂ - x₁) (y₂ - y₁) x₁⁻¹
+  linarith [b1, b2, b3, b4, harith]
+
+end BMORProp21
+
+-- ==== BMORBndDivFinal.lean ====
+
+
+/-!
+# The contour bound with the weight `1/s`
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+set_option maxHeartbeats 800000 in
+/-- The contour bound for `(x^s)·(f'/f/s)`. -/
+theorem norm_bnd_cpow_div_le {f g : ℂ → ℂ} (df : Differentiable ℂ f)
+    (hg : Differentiable ℂ g) {R : Set ℂ} (hR : IsCompact R) {σ : Finset ℂ} {m : ℂ → ℕ}
+    (D : ContourData f g R σ m)
+    {x : ℝ} (hx : 1 < x) {x₁ x₂ y₁ y₂ : ℝ} (hx12 : x₁ ≤ x₂) (hy12 : y₁ ≤ y₂)
+    (hx1 : 0 < x₁) (hrect : R = rectSet x₁ x₂ y₁ y₂)
+    (h0 : 0 ∉ rectSet x₁ x₂ y₁ y₂)
+    (hle : Real.exp (x₁ * Real.log x) ≤ Real.exp (x₂ * Real.log x)) :
+    ‖bnd (fun s => (x:ℂ) ^ s * (logDeriv f s / s)) x₁ x₂ y₁ y₂‖
+      ≤ Real.exp (x₂ * Real.log x) *
+          (2 * x₁⁻¹ * ((x₂ - x₁) + (y₂ - y₁)) *
+            ((∑ ρ ∈ σ, (m ρ : ℝ) * (D.delta ρ)⁻¹) + D.Cg)) := by
+  have hmemH1 : ∀ t ∈ Set.uIcc x₁ x₂, ((t:ℂ) + (y₁:ℂ)*I) ∈ R := by
+    intro t ht
+    rw [hrect]
+    exact ⟨by simpa using ht, by simpa using (Set.left_mem_uIcc : y₁ ∈ Set.uIcc y₁ y₂)⟩
+  have hmemH2 : ∀ t ∈ Set.uIcc x₁ x₂, ((t:ℂ) + (y₂:ℂ)*I) ∈ R := by
+    intro t ht
+    rw [hrect]
+    exact ⟨by simpa using ht, by simpa using (Set.right_mem_uIcc : y₂ ∈ Set.uIcc y₁ y₂)⟩
+  have hmemV2 : ∀ t ∈ Set.uIcc y₁ y₂, ((x₂:ℂ) + (t:ℂ)*I) ∈ R := by
+    intro t ht
+    rw [hrect]
+    exact ⟨by simpa using (Set.right_mem_uIcc : x₂ ∈ Set.uIcc x₁ x₂), by simpa using ht⟩
+  have hmemV1 : ∀ t ∈ Set.uIcc y₁ y₂, ((x₁:ℂ) + (t:ℂ)*I) ∈ R := by
+    intro t ht
+    rw [hrect]
+    exact ⟨by simpa using (Set.left_mem_uIcc : x₁ ∈ Set.uIcc x₁ x₂), by simpa using ht⟩
+  have h0H1 : ∀ t ∈ Set.uIcc x₁ x₂, ((t:ℂ) + (y₁:ℂ)*I) ≠ 0 := by
+    intro t ht h
+    exact h0 (h ▸ ⟨by simpa using ht, by simpa using (Set.left_mem_uIcc : y₁ ∈ Set.uIcc y₁ y₂)⟩)
+  have h0H2 : ∀ t ∈ Set.uIcc x₁ x₂, ((t:ℂ) + (y₂:ℂ)*I) ≠ 0 := by
+    intro t ht h
+    exact h0 (h ▸ ⟨by simpa using ht, by simpa using (Set.right_mem_uIcc : y₂ ∈ Set.uIcc y₁ y₂)⟩)
+  have h0V2 : ∀ t ∈ Set.uIcc y₁ y₂, ((x₂:ℂ) + (t:ℂ)*I) ≠ 0 := by
+    intro t ht h
+    exact h0 (h ▸ ⟨by simpa using (Set.right_mem_uIcc : x₂ ∈ Set.uIcc x₁ x₂), by simpa using ht⟩)
+  have h0V1 : ∀ t ∈ Set.uIcc y₁ y₂, ((x₁:ℂ) + (t:ℂ)*I) ≠ 0 := by
+    intro t ht h
+    exact h0 (h ▸ ⟨by simpa using (Set.left_mem_uIcc : x₁ ∈ Set.uIcc x₁ x₂), by simpa using ht⟩)
+  have cH1 := continuousOn_logDeriv_div df (cont_h y₁) (fun t ht => D.hne _ (hmemH1 t ht)) h0H1
+  have cH2 := continuousOn_logDeriv_div df (cont_h y₂) (fun t ht => D.hne _ (hmemH2 t ht)) h0H2
+  have cV2 := continuousOn_logDeriv_div df (cont_v x₂) (fun t ht => D.hne _ (hmemV2 t ht)) h0V2
+  have cV1 := continuousOn_logDeriv_div df (cont_v x₁) (fun t ht => D.hne _ (hmemV1 t ht)) h0V1
+  have hbase := norm_bnd_cpow_le_on (x := x) (G := fun s => logDeriv f s / s) hx hx12 hy12
+    cH1 cH2 cV1 cV2 hle
+  have hsum := four_leg_integral_div_le df hg hR D hx12 hy12 hx1 hrect h0
+  calc ‖bnd (fun s => (x:ℂ) ^ s * (logDeriv f s / s)) x₁ x₂ y₁ y₂‖
+      ≤ Real.exp (x₂ * Real.log x) *
+          ((∫ t in x₁..x₂, ‖logDeriv f ((t:ℂ) + (y₁:ℂ)*I) / (((t:ℂ) + (y₁:ℂ)*I))‖)
+            + (∫ t in x₁..x₂, ‖logDeriv f ((t:ℂ) + (y₂:ℂ)*I) / (((t:ℂ) + (y₂:ℂ)*I))‖)
+            + (∫ t in y₁..y₂, ‖logDeriv f ((x₂:ℂ) + (t:ℂ)*I) / (((x₂:ℂ) + (t:ℂ)*I))‖)
+            + (∫ t in y₁..y₂, ‖logDeriv f ((x₁:ℂ) + (t:ℂ)*I) / (((x₁:ℂ) + (t:ℂ)*I))‖)) := hbase
+    _ ≤ Real.exp (x₂ * Real.log x) *
+          (2 * x₁⁻¹ * ((x₂ - x₁) + (y₂ - y₁)) *
+            ((∑ ρ ∈ σ, (m ρ : ℝ) * (D.delta ρ)⁻¹) + D.Cg)) := by
+        apply mul_le_mul_of_nonneg_left hsum (le_of_lt (Real.exp_pos _))
+
+end BMORProp21
+
+-- ==== BMORZeroSumFinal.lean ====
+
+
+/-!
+# The explicit bound for the weighted zero sum
+
+`‖Σ_ρ m_ρ·(x^ρ/ρ)‖ ≤ x^{x₂}·2·x₁⁻¹·((x₂-x₁)+(y₂-y₁))·(Σ_ρ m_ρ·δ_ρ⁻¹ + C_g)/(2π)`.
+-/
+
+namespace BMORProp21
+
+open Complex Filter Set MeasureTheory
+open scoped Topology BigOperators
+
+set_option maxHeartbeats 800000 in
+/-- The explicit bound for `‖Σ_ρ m_ρ·(x^ρ/ρ)‖`. -/
+theorem norm_zero_sum_div_final {f g : ℂ → ℂ} (df : Differentiable ℂ f)
+    (hg : Differentiable ℂ g) {R : Set ℂ} (hR : IsCompact R) {σ : Finset ℂ} {m : ℂ → ℕ}
+    (D : ContourData f g R σ m)
+    {x : ℝ} (hx : 1 < x) {x₁ x₂ y₁ y₂ : ℝ} (hx12 : x₁ ≤ x₂) (hy12 : y₁ ≤ y₂)
+    (hx1 : 0 < x₁) (hrect : R = rectSet x₁ x₂ y₁ y₂)
+    (h0 : 0 ∉ rectSet x₁ x₂ y₁ y₂)
+    (hin : ∀ ρ ∈ σ, x₁ < ρ.re ∧ ρ.re < x₂ ∧ y₁ < ρ.im ∧ ρ.im < y₂)
+    (hle : Real.exp (x₁ * Real.log x) ≤ Real.exp (x₂ * Real.log x)) :
+    ‖∑ ρ ∈ σ, (m ρ : ℂ) * ((x:ℂ) ^ ρ / ρ)‖
+      ≤ Real.exp (x₂ * Real.log x) *
+          (2 * x₁⁻¹ * ((x₂ - x₁) + (y₂ - y₁)) *
+            ((∑ ρ ∈ σ, (m ρ : ℝ) * (D.delta ρ)⁻¹) + D.Cg)) / (2 * Real.pi) := by
+  have hgne : ∀ z ∈ rectSet x₁ x₂ y₁ y₂, g z ≠ 0 := by
+    intro z hz h0g
+    have h1 : f z = 0 := by rw [D.hfg z, h0g, mul_zero]
+    exact D.hne z (by rw [hrect]; exact hz) h1
+  have hB := norm_bnd_cpow_div_le df hg hR D hx hx12 hy12 hx1 hrect h0 hle
+  have hbridge : bnd (fun s => (x:ℂ) ^ s * (logDeriv f s / s)) x₁ x₂ y₁ y₂
+      = bnd (fun s => ((x:ℂ) ^ s / s) * logDeriv f s) x₁ x₂ y₁ y₂ := by
+    refine bnd_congr4 (G := fun s => ((x:ℂ) ^ s / s) * logDeriv f s) ?_ ?_ ?_ ?_
+    all_goals
+      intro t _
+      ring
+  have hB' : ‖bnd (fun s => ((x:ℂ) ^ s / s) * logDeriv f s) x₁ x₂ y₁ y₂‖
+      ≤ Real.exp (x₂ * Real.log x) *
+          (2 * x₁⁻¹ * ((x₂ - x₁) + (y₂ - y₁)) *
+            ((∑ ρ ∈ σ, (m ρ : ℝ) * (D.delta ρ)⁻¹) + D.Cg)) := by
+    rw [← hbridge]
+    exact hB
+  have hx0 : (x:ℂ) ≠ 0 := by
+    have hpos : (0:ℝ) < x := lt_trans zero_lt_one hx
+    exact_mod_cast hpos.ne'
+  exact norm_zero_sum_div_le df hg hx0 hR hrect h0 D.hP D.hfg hgne hin hB'
 
 end BMORProp21
 -- ==== end analytic infrastructure block ====
